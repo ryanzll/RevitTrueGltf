@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk">
+    <PropertyGroup>
+        <OutputType>Library</OutputType>
+        <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
+        <UseWPF>true</UseWPF>
+        <ImportWindowsDesktopTargets>true</ImportWindowsDesktopTargets>
+    </PropertyGroup>
+    <ItemGroup>
+      <PackageReference Include="SharpGLTF.Core" Version="1.0.6" />
+      <PackageReference Include="SharpGLTF.Toolkit" Version="1.0.6" />
+    </ItemGroup>
+</Project>
