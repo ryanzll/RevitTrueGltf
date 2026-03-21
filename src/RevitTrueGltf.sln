@@ -5,6 +5,11 @@ VisualStudioVersion = 17.12.35707.178
 MinimumVisualStudioVersion = 10.0.40219.1
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "RevitTrueGltf", "RevitTrueGltf\RevitTrueGltf.csproj", "{62500D41-B5D4-401C-A0FB-2EA145E80CE2}"
 EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Solution Items", "Solution Items", "{E48E35CF-E057-407D-89F5-6A6AE45EA5A6}"
+	ProjectSection(SolutionItems) = preProject
+		.editorconfig = .editorconfig
+	EndProjectSection
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug2020|Any CPU = Debug2020|Any CPU
