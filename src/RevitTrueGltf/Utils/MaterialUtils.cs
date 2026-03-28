@@ -9,7 +9,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Numerics;
 
-namespace RevitTrueGltf
+namespace RevitTrueGltf.Utils
 {
     enum MateriLibType
     {
@@ -232,7 +232,8 @@ namespace RevitTrueGltf
                     string absoluteTexturePath = GetAbsoluteTexturePath(textureProperty.Value);
                     if (!string.IsNullOrEmpty(absoluteTexturePath) && File.Exists(absoluteTexturePath))
                     {
-                        MemoryImage memoryImage = new MemoryImage(absoluteTexturePath);
+                        // Convert the height/bump map to a proper tangent-space normal map and get it as a MemoryImage
+                        MemoryImage memoryImage = BumpToNormalConverter.Convert(absoluteTexturePath);
                         ImageBuilder imageBuilder = ImageBuilder.From(memoryImage);
                         materialBuilder.WithNormal(imageBuilder);
                     }
@@ -284,7 +285,7 @@ namespace RevitTrueGltf
             double overallTransmittance = Math.Pow(singlePaneTransmittance, levels);
 
             // Considering the energy carried away by reflected light, the reflectance also enhances the solidity of the base color representation during Alpha blending
-            double alpha = 1.0 - (overallTransmittance * (1.0 - reflectance));
+            double alpha = 1.0 - overallTransmittance * (1.0 - reflectance);
             alpha = Math.Max(0.0, Math.Min(1.0, alpha));
 
             Vector4 colorVector = new Vector4((float)baseColor[0], (float)baseColor[1], (float)baseColor[2], (float)alpha);
@@ -432,9 +433,9 @@ namespace RevitTrueGltf
                 // Case C: Mixed and should set texture
                 // BaseColor = RevitColor * (1 - diffuseFade) + White(1.0) * diffuseFade
                 Vector4 gltfBaseColorFactor = new Vector4();
-                gltfBaseColorFactor.X = (diffuseColor.X * (1.0f - diffuseFade)) + (1.0f * diffuseFade); // R
-                gltfBaseColorFactor.Y = (diffuseColor.Y * (1.0f - diffuseFade)) + (1.0f * diffuseFade); // G
-                gltfBaseColorFactor.Z = (diffuseColor.Z * (1.0f - diffuseFade)) + (1.0f * diffuseFade); // B
+                gltfBaseColorFactor.X = diffuseColor.X * (1.0f - diffuseFade) + 1.0f * diffuseFade; // R
+                gltfBaseColorFactor.Y = diffuseColor.Y * (1.0f - diffuseFade) + 1.0f * diffuseFade; // G
+                gltfBaseColorFactor.Z = diffuseColor.Z * (1.0f - diffuseFade) + 1.0f * diffuseFade; // B
                 gltfBaseColorFactor.W = transparency; // A remains unchanged
                 return gltfBaseColorFactor;
             }

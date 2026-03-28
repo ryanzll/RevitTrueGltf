@@ -8,6 +8,7 @@
     <ItemGroup>
       <PackageReference Include="SharpGLTF.Core" Version="1.0.6" />
       <PackageReference Include="SharpGLTF.Toolkit" Version="1.0.6" />
+      <PackageReference Include="SixLabors.ImageSharp" Version="2.1.13" />
     </ItemGroup>
     <ItemGroup>
       <EditorConfigFiles Remove="F:\work\PersonalProject\RevitTrueGltf\src\RevitTrueGltf\.editorconfig" />

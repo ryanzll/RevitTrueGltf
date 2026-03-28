@@ -1,4 +1,5 @@
 using Autodesk.Revit.DB;
+using RevitTrueGltf.Utils;
 using SharpGLTF.Geometry;
 using SharpGLTF.Geometry.VertexTypes;
 using SharpGLTF.Materials;
