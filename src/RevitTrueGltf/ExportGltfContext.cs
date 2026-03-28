@@ -1,8 +1,9 @@
-﻿using Autodesk.Revit.DB;
+using Autodesk.Revit.DB;
 using SharpGLTF.Geometry;
 using SharpGLTF.Geometry.VertexTypes;
 using SharpGLTF.Materials;
 using SharpGLTF.Scenes;
+using System;
 using System.Collections.Generic;
 using System.Numerics;
 
@@ -120,48 +121,66 @@ namespace RevitTrueGltf
 
         public void OnMaterial(MaterialNode node)
         {
-            _elementInfo.MaterialId = node.MaterialId;
-            MaterialBuilder materialBuilder = null;
-            if (!_materialBuilderCache.TryGetValue(_elementInfo.MaterialId, out materialBuilder))
+            try
             {
-                var color = node.Color;
-                var transparency = node.Transparency;
-                materialBuilder = new MaterialBuilder(node.NodeName).
-                    WithBaseColor(new Vector4(color.Red / 255f, color.Green / 255f, color.Blue / 255f, (float)(1.0f - transparency)));
-                if (transparency > 0)
+                _elementInfo.MaterialId = node.MaterialId;
+                MaterialBuilder materialBuilder = null;
+                if (!_materialBuilderCache.TryGetValue(_elementInfo.MaterialId, out materialBuilder))
                 {
-                    materialBuilder.WithAlpha(AlphaMode.BLEND);
+                    MaterialUtils materialUtils = new MaterialUtils();
+                    materialBuilder = new MaterialBuilder(node.NodeName);
+                    if (!materialUtils.Convert(node, materialBuilder))
+                    {
+                        var color = node.Color;
+                        var transparency = node.Transparency;
+                        materialBuilder = new MaterialBuilder(node.NodeName).
+                            WithBaseColor(new Vector4(color.Red / 255f, color.Green / 255f, color.Blue / 255f, (float)(1.0f - transparency)));
+                        if (transparency > 0)
+                        {
+                            materialBuilder.WithAlpha(AlphaMode.BLEND);
+                        }
+                    }
+                    _materialBuilderCache.Add(_elementInfo.MaterialId, materialBuilder);
                 }
-
-                _materialBuilderCache.Add(_elementInfo.MaterialId, materialBuilder);
+            }
+            catch (Exception ex)
+            {
+                throw ex;
             }
         }
 
         public void OnPolymesh(PolymeshTopology node)
         {
-            MaterialBuilder materialBuilder = null;
-            if (!_materialBuilderCache.TryGetValue(_elementInfo.MaterialId, out materialBuilder))
+            try
             {
-                materialBuilder = new MaterialBuilder("Default").WithBaseColor(new Vector4(0.8f, 0.8f, 0.8f, 1.0f));
-            }
+                MaterialBuilder materialBuilder = null;
+                if (!_materialBuilderCache.TryGetValue(_elementInfo.MaterialId, out materialBuilder))
+                {
+                    materialBuilder = new MaterialBuilder("Default").WithBaseColor(new Vector4(0.8f, 0.8f, 0.8f, 1.0f));
+                }
 
-            // if a instance has nested instance and another mesh
-            if (_meshBuilder == null)
-            {
-                _meshBuilder = new MeshBuilderType();
-            }
-            var primitive = _meshBuilder.UsePrimitive(materialBuilder);
+                // if a instance has nested instance and another mesh
+                if (_meshBuilder == null)
+                {
+                    _meshBuilder = new MeshBuilderType();
+                }
+                var primitive = _meshBuilder.UsePrimitive(materialBuilder);
 
-            var points = node.GetPoints();
-            var normals = node.GetNormals();
-            int facetIndex = 0;
-            foreach (var facet in node.GetFacets())
+                var points = node.GetPoints();
+                var normals = node.GetNormals();
+                int facetIndex = 0;
+                foreach (var facet in node.GetFacets())
+                {
+                    var v0 = CreateVertex(points[facet.V1], GetFaceVerexNormal(node, facetIndex, facet.V1));
+                    var v1 = CreateVertex(points[facet.V2], GetFaceVerexNormal(node, facetIndex, facet.V2));
+                    var v2 = CreateVertex(points[facet.V3], GetFaceVerexNormal(node, facetIndex, facet.V3));
+                    primitive.AddTriangle(v0, v1, v2);
+                    facetIndex++;
+                }
+            }
+            catch (Exception ex)
             {
-                var v0 = CreateVertex(points[facet.V1], GetFaceVerexNormal(node, facetIndex, facet.V1));
-                var v1 = CreateVertex(points[facet.V2], GetFaceVerexNormal(node, facetIndex, facet.V2));
-                var v2 = CreateVertex(points[facet.V3], GetFaceVerexNormal(node, facetIndex, facet.V3));
-                primitive.AddTriangle(v0, v2, v1);
-                facetIndex++;
+                throw ex;
             }
         }
 
@@ -192,12 +211,38 @@ namespace RevitTrueGltf
             return new VertexBuilderType(new VertexPositionNormal { Position = position, Normal = normalVec });
         }
 
+        /// <summary>
+        /// Converts Revit coordinates to glTF coordinates.
+        /// 
+        /// Coordinate Systems:
+        /// 
+        ///   Revit (Right-handed, Z-up)
+        ///        Z (Up)
+        ///        ^   Y (Back/North)
+        ///        |  /
+        ///        | /
+        ///        o------> X (Right/East)
+        ///
+        ///   glTF (Right-handed, Y-up)
+        ///        Y (Up)
+        ///        ^
+        ///        |
+        ///        o------> X (Right)
+        ///       /
+        ///      v
+        ///     Z (Forward/Out of screen)
+        ///
+        ///   Mapping:
+        ///   glTF.X =  Revit.X
+        ///   glTF.Y =  Revit.Z
+        ///   glTF.Z = -Revit.Y
+        /// </summary>
         private Vector3 ConvertPt(XYZ point)
         {
             return new Vector3(
                 (float)UnitUtils.Feet2Meter(point.X),
-                (float)UnitUtils.Feet2Meter(point.Z),   // Revit Z 变成 glTF Y
-                -(float)UnitUtils.Feet2Meter(point.Y)   // Revit Y 变成 glTF -Z
+                (float)UnitUtils.Feet2Meter(point.Z),   // Revit Z becomes glTF Y
+                -(float)UnitUtils.Feet2Meter(point.Y)   // Revit Y becomes glTF -Z
             );
         }
 
@@ -210,16 +255,16 @@ namespace RevitTrueGltf
 
         private Matrix4x4 ConvertTransform(Transform t)
         {
-            // 注意：变换矩阵的平移部分需要转换单位，旋转部分需要处理 Z-up 到 Y-up 的轴交换
-            var right = ConvertPt(t.BasisX); // 这里为了保持矩阵正交，可能需要自定义逻辑，或者直接转换分量
+            // Note: The translation part of the transformation matrix requires unit conversion, and the rotation part needs to handle the axis swap from Z-up to Y-up
+            var right = ConvertPt(t.BasisX); // Custom logic might be needed here to keep the matrix orthogonal, or simply converting the components directly
             var up = ConvertPt(t.BasisZ);
             var forward = ConvertPt(t.BasisY);
 
-            // 更简便安全的矩阵转换方式：
+            // A simpler and safer way to convert the matrix:
             return new Matrix4x4(
                 (float)t.BasisX.X, (float)t.BasisX.Z, -(float)t.BasisX.Y, 0,
-                (float)t.BasisZ.X, (float)t.BasisZ.Z, -(float)t.BasisZ.Y, 0, // Z 轴变 Y 轴
-                -(float)t.BasisY.X, -(float)t.BasisY.Z, (float)t.BasisY.Y, 0, // Y 轴变 -Z 轴
+                (float)t.BasisZ.X, (float)t.BasisZ.Z, -(float)t.BasisZ.Y, 0, // Z axis becomes Y axis
+                -(float)t.BasisY.X, -(float)t.BasisY.Z, (float)t.BasisY.Y, 0, // Y axis becomes -Z axis
                 (float)UnitUtils.Feet2Meter(t.Origin.X),
                 (float)UnitUtils.Feet2Meter(t.Origin.Z),
                 -(float)UnitUtils.Feet2Meter(t.Origin.Y), 1

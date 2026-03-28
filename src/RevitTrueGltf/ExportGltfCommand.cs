@@ -17,6 +17,7 @@ namespace RevitTrueGltf
                 return Result.Failed;
             }
 
+            MaterialUtils.Init(commandData.Application.Application);
             ExportGltfContext context = new ExportGltfContext(doc);
 
             // 创建 CustomExporter
