@@ -9,13 +9,13 @@ using System.Numerics;
 
 namespace RevitTrueGltf
 {
-    using MeshBuilderType = MeshBuilder<VertexPositionNormal, VertexEmpty, VertexEmpty>;
-    using VertexBuilderType = VertexBuilder<VertexPositionNormal, VertexEmpty, VertexEmpty>;
+    using MeshBuilderType = MeshBuilder<VertexPositionNormalTangent, VertexTexture1, VertexEmpty>;
+    using VertexBuilderType = VertexBuilder<VertexPositionNormalTangent, VertexTexture1, VertexEmpty>;
 
     internal class ExportGltfContext : IExportContext
     {
         private SceneBuilder _sceneBuilder = new SceneBuilder();
-        private MeshBuilder<VertexPositionNormal, VertexEmpty, VertexEmpty> _meshBuilder = new MeshBuilder<VertexPositionNormal, VertexEmpty, VertexEmpty>();
+        private MeshBuilderType _meshBuilder = new MeshBuilderType();
         private readonly Dictionary<ElementId, MeshBuilderType> _meshBuilderCache = new Dictionary<ElementId, MeshBuilderType>();
         private readonly Dictionary<ElementId, MaterialBuilder> _materialBuilderCache = new Dictionary<ElementId, MaterialBuilder>();
 
@@ -167,13 +167,37 @@ namespace RevitTrueGltf
                 var primitive = _meshBuilder.UsePrimitive(materialBuilder);
 
                 var points = node.GetPoints();
-                var normals = node.GetNormals();
+                var uvs = node.GetUVs();
+                bool hasUVs = uvs != null && uvs.Count > 0;
                 int facetIndex = 0;
                 foreach (var facet in node.GetFacets())
                 {
-                    var v0 = CreateVertex(points[facet.V1], GetFaceVerexNormal(node, facetIndex, facet.V1));
-                    var v1 = CreateVertex(points[facet.V2], GetFaceVerexNormal(node, facetIndex, facet.V2));
-                    var v2 = CreateVertex(points[facet.V3], GetFaceVerexNormal(node, facetIndex, facet.V3));
+                    // Build full glTF vertices (position, normal, UV all converted; tangent set last)
+                    var v0 = CreateVertex(points[facet.V1], GetFaceVerexNormal(node, facetIndex, facet.V1), hasUVs ? uvs[facet.V1] : new UV(0, 0));
+                    var v1 = CreateVertex(points[facet.V2], GetFaceVerexNormal(node, facetIndex, facet.V2), hasUVs ? uvs[facet.V2] : new UV(0, 0));
+                    var v2 = CreateVertex(points[facet.V3], GetFaceVerexNormal(node, facetIndex, facet.V3), hasUVs ? uvs[facet.V3] : new UV(0, 0));
+
+                    // Skip degenerate triangles — read positions directly from the vertex structs
+                    if (Vector3.DistanceSquared(v0.Geometry.Position, v1.Geometry.Position) < 1e-12f ||
+                        Vector3.DistanceSquared(v1.Geometry.Position, v2.Geometry.Position) < 1e-12f ||
+                        Vector3.DistanceSquared(v2.Geometry.Position, v0.Geometry.Position) < 1e-12f)
+                    {
+                        facetIndex++;
+                        continue;
+                    }
+
+                    // Compute tangent from vertex positions, UVs, and face normal (all already in glTF space)
+                    var tangent = ComputeTangent(
+                        v0.Geometry.Position, v1.Geometry.Position, v2.Geometry.Position,
+                        v0.Material.TexCoord, v1.Material.TexCoord, v2.Material.TexCoord,
+                        v0.Geometry.Normal
+                    );
+
+                    // Patch tangent back into each vertex (Geometry is a value type, must get-modify-reassign)
+                    var g0 = v0.Geometry; g0.Tangent = tangent; v0.Geometry = g0;
+                    var g1 = v1.Geometry; g1.Tangent = tangent; v1.Geometry = g1;
+                    var g2 = v2.Geometry; g2.Tangent = tangent; v2.Geometry = g2;
+
                     primitive.AddTriangle(v0, v1, v2);
                     facetIndex++;
                 }
@@ -204,11 +228,80 @@ namespace RevitTrueGltf
         #endregion
 
         #region Utils
-        private VertexBuilderType CreateVertex(XYZ point, XYZ normal)
+        /// <summary>
+        /// Builds a glTF vertex from Revit-space inputs. Performs all coordinate conversions
+        /// (ConvertPt, ConvertNormal, UV V-flip) internally. Tangent is left as default (zero)
+        /// and must be patched in by the caller after computing it.
+        /// </summary>
+        private VertexBuilderType CreateVertex(XYZ point, XYZ normal, UV uv)
         {
-            var position = ConvertPt(point);
-            var normalVec = ConvertNormal(normal);
-            return new VertexBuilderType(new VertexPositionNormal { Position = position, Normal = normalVec });
+            var geometry = new VertexPositionNormalTangent
+            {
+                Position = ConvertPt(point),
+                Normal = ConvertNormal(normal)
+                // Tangent intentionally left as default; caller sets it after ComputeTangent
+            };
+            // glTF UV origin is top-left (V increases downward); Revit UV origin is bottom-left
+            var texture = new VertexTexture1 { TexCoord = new Vector2((float)uv.U, 1f - (float)uv.V) };
+            return new VertexBuilderType(geometry, texture);
+        }
+
+        /// <summary>
+        /// Computes a per-triangle tangent vector (with handedness W = ±1) from already-converted
+        /// glTF-space positions, UVs, and face normal using the standard UV-derivative method.
+        /// Applies Gram-Schmidt orthogonalization to ensure T ⊥ N (required for correct normal mapping
+        /// on smooth-shaded meshes where vertex normals differ from the geometric face normal).
+        /// Falls back to an arbitrary perpendicular tangent when UVs are degenerate.
+        /// All inputs must be in glTF coordinate space; no conversion is performed here.
+        /// </summary>
+        private Vector4 ComputeTangent(Vector3 pos0, Vector3 pos1, Vector3 pos2, Vector2 uv0, Vector2 uv1, Vector2 uv2, Vector3 faceNormal)
+        {
+            var edge1 = pos1 - pos0;
+            var edge2 = pos2 - pos0;
+
+            float du1 = uv1.X - uv0.X;
+            float dv1 = uv1.Y - uv0.Y;
+            float du2 = uv2.X - uv0.X;
+            float dv2 = uv2.Y - uv0.Y;
+
+            float det = du1 * dv2 - du2 * dv1;
+
+            Vector3 tangent;
+            float handedness = 1.0f;
+
+            if (Math.Abs(det) < 1e-6f)
+            {
+                // Degenerate or missing UVs — build an arbitrary tangent perpendicular to the normal
+                tangent = Vector3.Cross(faceNormal, Vector3.UnitZ);
+                if (tangent.LengthSquared() < 0.1f)
+                    tangent = Vector3.Cross(faceNormal, Vector3.UnitX);
+                tangent = Vector3.Normalize(tangent);
+            }
+            else
+            {
+                float f = 1.0f / det;
+                tangent = Vector3.Normalize(new Vector3(
+                    f * (dv2 * edge1.X - dv1 * edge2.X),
+                    f * (dv2 * edge1.Y - dv1 * edge2.Y),
+                    f * (dv2 * edge1.Z - dv1 * edge2.Z)
+                ));
+
+                // Gram-Schmidt orthogonalization: re-orthogonalize T against N so that T ⊥ N.
+                // UV-derived tangents are not guaranteed to be perpendicular to interpolated vertex
+                // normals on smooth-shaded meshes, but normal mapping requires an orthonormal TBN basis.
+                tangent = Vector3.Normalize(tangent - faceNormal * Vector3.Dot(faceNormal, tangent));
+
+                // Compute UV-space bitangent, then check handedness (W = ±1).
+                // Handedness is computed after orthogonalization using the original UV-derived bitangent.
+                var bitangent = new Vector3(
+                    f * (-du2 * edge1.X + du1 * edge2.X),
+                    f * (-du2 * edge1.Y + du1 * edge2.Y),
+                    f * (-du2 * edge1.Z + du1 * edge2.Z)
+                );
+                handedness = Vector3.Dot(Vector3.Cross(faceNormal, tangent), bitangent) < 0f ? -1.0f : 1.0f;
+            }
+
+            return new Vector4(tangent, handedness);
         }
 
         /// <summary>

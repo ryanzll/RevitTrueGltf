@@ -8,7 +8,6 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Numerics;
-using System.Xml.Linq;
 
 namespace RevitTrueGltf
 {
@@ -108,17 +107,12 @@ namespace RevitTrueGltf
                 return false;
             }
 
-            System.Diagnostics.Trace.WriteLine($"{appearance.Name}: {appearance.AssetType}: {appearance.Type}");
-            for (int index = 0; index < appearance.Size; index++)
-            {
-                var item = appearance.Get(index);
-                System.Diagnostics.Trace.WriteLine($"{item.Name}");
-            }
-
-            if(appearance.Name == "GlazingSchema")
+            // for material similar to Glass
+            if (appearance.Name == "GlazingSchema")
             {
                 return ConvertGlazingMaterial(appearance, materialBuilder);
             }
+
             var diffuseFadeProperty = appearance.FindByName("generic_diffuse_image_fade");
             float diffuseFade = 1.0f;
             if (diffuseFadeProperty != null)
@@ -135,13 +129,33 @@ namespace RevitTrueGltf
                 transparency = (float)doubleProperty.Value;
             }
 
+            var tintColor = new Vector4(1.0f, 1.0f, 1.0f, 1.0f);
+            var tintToggleProp = appearance.FindByName("common_Tint_toggle") as AssetPropertyBoolean;
+            if (tintToggleProp == null || tintToggleProp.Value) // If no toggle, assume true so we try to get tint color
+            {
+                var tintProperty = appearance.FindByName("common_Tint_color");
+                if (tintProperty != null)
+                {
+                    tintColor = GetColorVector(tintProperty);
+                }
+            }
+
             Vector4 color = DefaultColor;
             var colorProperty = appearance.FindByName("generic_diffuse") ?? appearance.FindByName("opaque_albedo");
             if (colorProperty != null)
             {
                 color = GetColorVector(colorProperty);
-                color = RevitDiffuseColorToGltfBaseColor(color, transparency, diffuseFade);
-                var textureProperty = FindTextureProperty(colorProperty) as AssetPropertyString;
+
+                // https://jeremytammik.github.io/tbc/a/1596_texture_path.html
+                // var test = asset[UnifiedBitmap.UnifiedbitmapBitmap];
+                // This line is 2018.1 & up because of the 
+                // property reference to UnifiedBitmap
+                // .UnifiedbitmapBitmap.  In earlier versions,
+                // you can still reference the string name 
+                // instead: "unifiedbitmap_Bitmap"
+                IList<string> texturePropertyNames = new List<string> { "unifiedbitmap_Bitmap", "UnifiedBitmapSchema" };
+                var textureProperty = FindTextureProperty(colorProperty, texturePropertyNames) as AssetPropertyString;
+                bool isTextureApplied = false;
                 if (textureProperty != null)
                 {
                     var abosoluteTexturePath = GetAbsoluteTexturePath(textureProperty.Value);
@@ -150,13 +164,27 @@ namespace RevitTrueGltf
                         MemoryImage memoryImage = new MemoryImage(abosoluteTexturePath);
                         ImageBuilder imageBuilder = ImageBuilder.From(memoryImage, null);
                         materialBuilder.WithBaseColor(imageBuilder);
-                    };
+                        isTextureApplied = true;
+                    }
+                }
+
+                if (isTextureApplied)
+                {
+                    color = RevitDiffuseColorToGltfBaseColor(color, transparency, diffuseFade);
+                }
+                else
+                {
+                    color = new Vector4(color.X, color.Y, color.Z, transparency);
                 }
             }
             else
             {
-                color = new Vector4(node.Color.Red / 255f, node.Color.Green / 255f, node.Color.Blue / 255f, 1.0f);
+                color = new Vector4(node.Color.Red / 255f, node.Color.Green / 255f, node.Color.Blue / 255f, transparency);
             }
+
+            // Apply tint color to the final color (creates a multiplied tint effect)
+            color = new Vector4(color.X * tintColor.X, color.Y * tintColor.Y, color.Z * tintColor.Z, color.W);
+
             materialBuilder.WithBaseColor(color);
 
             float? roughness = null;
@@ -194,15 +222,20 @@ namespace RevitTrueGltf
                 }
             }
 
-            AssetPropertyString bumpProp = (appearance.FindByName("generic_bump_map") ?? appearance.FindByName("surface_normal")) as AssetPropertyString;
+            AssetProperty bumpProp = appearance.FindByName("generic_bump_map"); // ?? appearance.FindByName("surface_normal")) as AssetPropertyString
             if (bumpProp != null)
             {
-                string absoluteTexturePath = GetAbsoluteTexturePath(bumpProp.Value);
-                if (!string.IsNullOrEmpty(absoluteTexturePath) && File.Exists(absoluteTexturePath))
+                IList<string> bumpTexturePropertyNames = new List<string> { "unifiedbitmap_Bitmap" };
+                var textureProperty = FindTextureProperty(bumpProp, bumpTexturePropertyNames) as AssetPropertyString;
+                if (textureProperty != null)
                 {
-                    MemoryImage memoryImage = new MemoryImage(absoluteTexturePath);
-                    ImageBuilder imageBuilder = ImageBuilder.From(memoryImage);
-                    materialBuilder.WithNormal(imageBuilder);
+                    string absoluteTexturePath = GetAbsoluteTexturePath(textureProperty.Value);
+                    if (!string.IsNullOrEmpty(absoluteTexturePath) && File.Exists(absoluteTexturePath))
+                    {
+                        MemoryImage memoryImage = new MemoryImage(absoluteTexturePath);
+                        ImageBuilder imageBuilder = ImageBuilder.From(memoryImage);
+                        materialBuilder.WithNormal(imageBuilder);
+                    }
                 }
             }
             return true;
@@ -230,7 +263,7 @@ namespace RevitTrueGltf
                     // If Tint is enabled, the tint color usually overrides the transmittance color
                     var tintColor = tintColorProp.GetValueAsDoubles();
                     baseColor[0] = tintColor[0];
-                    baseColor[1] = tintColor[1]; 
+                    baseColor[1] = tintColor[1];
                     baseColor[2] = tintColor[2];
                 }
             }
@@ -247,9 +280,9 @@ namespace RevitTrueGltf
 
             // Levels and Reflectance both affect transparency (Alpha): more panes and higher reflectance lead to a more solid appearance
             // Assuming a single pane's transmittance is 0.8, overlapping multiple panes gradually decreases transmittance
-            double singlePaneTransmittance = 0.8; 
+            double singlePaneTransmittance = 0.8;
             double overallTransmittance = Math.Pow(singlePaneTransmittance, levels);
-            
+
             // Considering the energy carried away by reflected light, the reflectance also enhances the solidity of the base color representation during Alpha blending
             double alpha = 1.0 - (overallTransmittance * (1.0 - reflectance));
             alpha = Math.Max(0.0, Math.Min(1.0, alpha));
@@ -287,18 +320,18 @@ namespace RevitTrueGltf
             return new Vector4(1f, 1f, 1f, 1f);
         }
 
-        private AssetProperty FindTextureProperty(AssetProperty assetProperty)
+        private AssetProperty FindTextureProperty(AssetProperty assetProperty, IList<string> textPropertyNames)
         {
             if (assetProperty.Type == AssetPropertyType.Asset)
             {
                 var asset = assetProperty as Asset;
-                return FindTextureProperty(asset);
+                return FindTextureProperty(asset, textPropertyNames);
             }
             else
             {
                 for (int i = 0; i < assetProperty.NumberOfConnectedProperties; i++)
                 {
-                    var textureProperty = FindTextureProperty(assetProperty.GetConnectedProperty(i));
+                    var textureProperty = FindTextureProperty(assetProperty.GetConnectedProperty(i), textPropertyNames);
                     if (null != textureProperty)
                     {
                         return textureProperty;
@@ -308,71 +341,32 @@ namespace RevitTrueGltf
             }
         }
 
-        private AssetProperty FindTextureProperty(Asset asset)
+        private AssetProperty FindTextureProperty(Asset asset, IList<string> textPropertyNames)
         {
-            AssetProperty assetProprty = asset.FindByName("assettype");
-            if (assetProprty == null || (assetProprty as AssetPropertyString).Value != "texture")
+            AssetProperty assetTypeProprty = asset.FindByName("assettype");
+            if (assetTypeProprty == null || (assetTypeProprty as AssetPropertyString).Value != "texture")
             {
                 return null;
             }
 
-            // https://jeremytammik.github.io/tbc/a/1596_texture_path.html
-            // var test = asset[UnifiedBitmap.UnifiedbitmapBitmap];
-            // This line is 2018.1 & up because of the 
-            // property reference to UnifiedBitmap
-            // .UnifiedbitmapBitmap.  In earlier versions,
-            // you can still reference the string name 
-            // instead: "unifiedbitmap_Bitmap"
-            var textureProp = asset.FindByName("unifiedbitmap_Bitmap");
-            if (textureProp != null)
+            foreach (var textPropertyName in textPropertyNames)
             {
-                return textureProp;
-            }
-
-            textureProp = asset.FindByName("UnifiedBitmapSchema");
-            if (textureProp != null)
-            {
-                return textureProp;
+                var textureProp = asset.FindByName(textPropertyName);
+                if (textureProp != null)
+                {
+                    return textureProp;
+                }
             }
 
             for (int i = 0; i < asset.Size; i++)
             {
-                textureProp = FindTextureProperty(asset[i]);
+                var textureProp = FindTextureProperty(asset[i], textPropertyNames);
                 if (null != textureProp)
                 {
                     return textureProp;
                 }
             }
             return null;
-        }
-
-        private bool IsTextureAsset(Asset asset)
-        {
-            AssetProperty assetProprty = asset.FindByName("assettype");
-            if (assetProprty != null && (assetProprty as AssetPropertyString).Value == "texture")
-            {
-                return true;
-            }
-
-            // https://jeremytammik.github.io/tbc/a/1596_texture_path.html
-            // var test = asset[UnifiedBitmap.UnifiedbitmapBitmap];
-            // This line is 2018.1 & up because of the 
-            // property reference to UnifiedBitmap
-            // .UnifiedbitmapBitmap.  In earlier versions,
-            // you can still reference the string name 
-            // instead: "unifiedbitmap_Bitmap"
-            var textureProp = asset.FindByName("unifiedbitmap_Bitmap");
-            if (textureProp != null)
-            {
-                return true;
-            }
-
-            textureProp = asset.FindByName("UnifiedBitmapSchema");
-            if (textureProp != null)
-            {
-                return true;
-            }
-            return false;
         }
 
         private string GetAbsoluteTexturePath(string rawTexturePath)
