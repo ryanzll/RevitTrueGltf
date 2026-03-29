@@ -55,7 +55,6 @@ namespace RevitTrueGltf
                     return Result.Failed;
                 }
             }
-            return Result.Succeeded;
         }
     }
 }

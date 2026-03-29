@@ -77,7 +77,11 @@ namespace RevitTrueGltf
 
         public RenderNodeAction OnInstanceBegin(InstanceNode node)
         {
+#if REVIT2024 || REVIT2025 || REVIT2026
+            _elementInfo.SymbolId = node.GetSymbolGeometryId().SymbolId;
+#else
             _elementInfo.SymbolId = node.GetSymbolId();
+#endif
             if (_meshBuilderCache.ContainsKey(_elementInfo.SymbolId))
             {
                 return RenderNodeAction.Skip;
@@ -89,7 +93,11 @@ namespace RevitTrueGltf
         public void OnInstanceEnd(InstanceNode node)
         {
             if (_elementInfo.SymbolId != ElementId.InvalidElementId &&
+#if REVIT2024 || REVIT2025 || REVIT2026
+                _elementInfo.SymbolId == node.GetSymbolGeometryId().SymbolId &&
+#else
                 _elementInfo.SymbolId == node.GetSymbolId() &&
+#endif
                 _meshBuilder != null)
             {
                 MeshBuilderType meshBuilder = null;

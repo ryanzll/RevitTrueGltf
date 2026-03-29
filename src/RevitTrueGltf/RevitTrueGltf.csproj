@@ -13,4 +13,9 @@
     <ItemGroup>
       <EditorConfigFiles Remove="F:\work\PersonalProject\RevitTrueGltf\src\RevitTrueGltf\.editorconfig" />
     </ItemGroup>
+    <ItemGroup>
+      <None Include="..\RevitTrueGltf.addin">
+        <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      </None>
+    </ItemGroup>
 </Project>
