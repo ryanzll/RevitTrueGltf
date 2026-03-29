@@ -52,15 +52,50 @@ In terms of material conversion, the exporter deeply analyzes Revit's internal m
 | **Revit Decals** | - | - |
 | **Procedural Maps (Wood, Marble, etc.)** | - | - |
 | **Advanced Texture Transform (UV Offset/Scale)**| - | - |
+| **Basis Universal (KTX2) Texture Compression** | - | ✔️ |
+| **Draco Geometry Compression** | - | ✔️ |
+| **Meshoptimizer Support** | - | ✔️ |
+| **Extract General Revit Property Data (BIM Info)** | - | ✔️ |
 
-## 4. Open-Source Projects Used
+## 4. How to Install & Test
+
+Since there is currently no pre-built `.msi` installer, you can load the plugin into Revit manually. Setting it up involves 3 simple steps:
+
+### Step 1: Obtain the Plugin Files (Choose one method)
+You can get the required `.dll` and `.addin` template files in two ways:
+
+**Method A: Download Pre-compiled Release (For general users)**
+1. Go to the **Releases** page of this repository.
+2. Download the pre-compiled `.zip` file for your target Revit version.
+3. Extract the contents into a local folder.
+
+**Method B: Compile from Source (For developers)**
+1. Open `RevitTrueGltf.sln` in Visual Studio.
+2. Build the project for your target Revit version (e.g., `Debug2024` or `Release2024`). The compiled `RevitTrueGltf.dll` will be generated in your output directory (e.g., `bin/2024/`).
+3. Locate the template `RevitTrueGltf.addin` file at the root of this repository.
+
+### Step 2: Configure the `.addin` File
+Once you have the `.dll` and `.addin` files from Step 1:
+1. Open the `.addin` file with any text editor (like Notepad).
+2. Find the `<Assembly>` tag line.
+3. Replace the placeholder text with the **absolute path** to your `RevitTrueGltf.dll` (e.g., `<Assembly>D:\RevitTrueGltf\RevitTrueGltf.dll</Assembly>`). 
+4. Save the file.
+
+### Step 3: Install and Run in Revit
+1. **Copy the edited `.addin` file** into one of the standard Revit plugin directories for your target version (e.g., `2024`). Common paths include:
+   - **Current User (Testing):** `%AppData%\Autodesk\Revit\Addins\<Year>` (e.g., `C:\Users\<YourUsername>\AppData\Roaming\Autodesk\Revit\Addins\2024`)
+   - **All Users (Global):** `%ProgramData%\Autodesk\Revit\Addins\<Year>` (e.g., `C:\ProgramData\Autodesk\Revit\Addins\2024`)
+2. **Launch Revit** and open a 3D view. 
+3. Go to the **Add-Ins > External Tools** ribbon and click **Export True glTF**.
+
+## 5. Open-Source Projects Used
 
 The successful build of this plugin relies on the following excellent open-source libraries. We highly appreciate their contributions:
 
 - **[SharpGLTF](https://github.com/vpenades/SharpGLTF)** (`SharpGLTF.Core` and `SharpGLTF.Toolkit`): An outstanding glTF/glb read-write framework. This project heavily utilizes it to construct the scene graph, manage materials, and serialize the standard-compliant glTF binaries.
 - **[ImageSharp](https://github.com/SixLabors/ImageSharp)** (`SixLabors.ImageSharp`): A cross-platform, high-performance image processing library. It handles the critical background texture modifications, in particular mapping and regenerating pixels for the Bump Map to Normal Map process.
 
-## 5. Contributing & Feedback
+## 6. Contributing & Feedback
 
 We warmly welcome all forms of contributions to make RevitTrueGltf better! 
 
