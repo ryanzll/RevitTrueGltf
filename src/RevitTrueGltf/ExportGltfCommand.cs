@@ -1,4 +1,4 @@
-﻿using Autodesk.Revit.DB;
+using Autodesk.Revit.DB;
 using Autodesk.Revit.UI;
 using RevitTrueGltf.Utils;
 using System;
@@ -15,13 +15,13 @@ namespace RevitTrueGltf
             View3D activeView = doc.ActiveView as View3D;
             if (activeView == null)
             {
+                TaskDialog.Show("Error", "Please make sure your active view is a 3D View before exporting.");
                 return Result.Failed;
             }
 
             MaterialUtils.Init(commandData.Application.Application);
             ExportGltfContext context = new ExportGltfContext(doc);
 
-            // 创建 CustomExporter
             using (CustomExporter exporter = new CustomExporter(doc, context))
             {
                 exporter.IncludeGeometricObjects = false;
@@ -30,12 +30,27 @@ namespace RevitTrueGltf
                 try
                 {
                     exporter.Export(doc.ActiveView);
-                    context.Save(@"C:\Users\ryan\Desktop\revit\test.glb");
-                    TaskDialog.Show("Success", "Export Gltf Success");
+
+                    Microsoft.Win32.SaveFileDialog saveFileDialog = new Microsoft.Win32.SaveFileDialog();
+                    saveFileDialog.Filter = "glTF Binary (*.glb)|*.glb|glTF JSON (*.gltf)|*.gltf";
+                    saveFileDialog.Title = "Save Exported glTF";
+                    saveFileDialog.FileName = doc.Title;
+
+                    if (saveFileDialog.ShowDialog() == true)
+                    {
+                        context.Save(saveFileDialog.FileName);
+                        TaskDialog.Show("Success", "Export glTF/glb Success");
+                    }
+                    else
+                    {
+                        return Result.Cancelled;
+                    }
+
                     return Result.Succeeded;
                 }
                 catch (Exception ex)
                 {
+                    TaskDialog.Show("Export Error", $"An error occurred during export:\n{ex.Message}");
                     message = ex.Message;
                     return Result.Failed;
                 }
