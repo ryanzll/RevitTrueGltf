@@ -1,4 +1,8 @@
-# RevitTrueGltf 
+<h1 align="center">
+  <img src="images/RevitTrueGltf.png" alt="RevitTrueGltf Logo" width="192"/>
+  <br/>
+  RevitTrueGltf
+</h1>
 
 RevitTrueGltf is a high-fidelity Revit to glTF 2.0 exporter plugin. It is dedicated to reproducing the original models and materials from Revit as accurately as possible in 3D graphics applications through a Physically Based Rendering (PBR) workflow to achieve high-quality rendering results.
 
