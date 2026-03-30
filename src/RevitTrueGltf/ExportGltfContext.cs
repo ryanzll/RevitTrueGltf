@@ -411,10 +411,10 @@ namespace RevitTrueGltf
         }
         #endregion
 
-        public void Save(string filePath)
-        {
-            var model = _sceneBuilder.ToGltf2();
-            model.Save(filePath);
-        }
+        /// <summary>
+        /// Returns the accumulated scene so the caller can decide how to write
+        /// (plain save, gltfpack post-process, etc.).
+        /// </summary>
+        public SceneBuilder ToScene() => _sceneBuilder;
     }
 }

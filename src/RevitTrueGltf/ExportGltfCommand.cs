@@ -20,6 +20,13 @@ namespace RevitTrueGltf
             }
 
             MaterialUtils.Init(commandData.Application.Application);
+
+            // TODO: Replace default settings with values from a settings dialog / persistent storage.
+            var settings = new ExportSettings
+            {
+                UseMeshoptimizer = false,
+                UseKtx2TextureCompression = false,
+            };
             ExportGltfContext context = new ExportGltfContext(doc);
 
             using (CustomExporter exporter = new CustomExporter(doc, context))
@@ -38,7 +45,7 @@ namespace RevitTrueGltf
 
                     if (saveFileDialog.ShowDialog() == true)
                     {
-                        context.Save(saveFileDialog.FileName);
+                        new GltfWriter(settings).Write(context.ToScene(), saveFileDialog.FileName);
                         TaskDialog.Show("Success", "Export glTF/glb Success");
                     }
                     else
