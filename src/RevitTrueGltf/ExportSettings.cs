@@ -1,40 +1,32 @@
+using System.Collections.Generic;
+
 namespace RevitTrueGltf
 {
-    /// <summary>
-    /// Holds all user-configurable options for the glTF export pipeline.
-    /// New options should be added here so they are decoupled from both the
-    /// export context (geometry traversal) and the command (UI/Revit entry point).
-    /// </summary>
+    public enum MaterialMode { Texture, ColorOnly }
+    public enum VertexPrecision { Standard = 14, High = 16, VeryHigh = 18 }
+    public enum ExportPreset { Custom, Draft, Balanced, HighFidelity }
+
     public class ExportSettings
     {
-        // ── Geometry optimisation ──────────────────────────────────────────────
+        // --- 1. Export Scope ---
+        public bool ExportFloors { get; set; } = true;
+        public bool VisibleElementsOnly { get; set; } = true;
+        public bool ExportBimProperties { get; set; } = true;
+        public bool IncludeLinkedModels { get; set; } = true;
 
-        /// <summary>
-        /// When <c>true</c>, the exported file is post-processed with
-        /// <b>gltfpack</b> (Meshoptimizer) to apply mesh quantization, vertex
-        /// cache optimization, and index-buffer compression
-        /// (<c>EXT_meshopt_compression</c>).
-        /// Requires the <c>EveryBIM.gltfpack.Binaries</c> NuGet package.
-        /// </summary>
-        public bool UseMeshoptimizer { get; set; } = false;
+        // --- 2. Appearance ---
+        public MaterialMode MaterialExportMode { get; set; } = MaterialMode.Texture;
 
-        // ── Texture compression ────────────────────────────────────────────────
-
-        /// <summary>
-        /// When <c>true</c>, textures are transcoded to
-        /// <b>Basis Universal / KTX2</b> format (<c>KHR_texture_basisu</c>)
-        /// during export, significantly reducing GPU memory consumption.
-        /// Requires the <c>EveryBIM.gltfpack.Binaries</c> NuGet package
-        /// (gltfpack handles the transcoding step).
-        /// </summary>
+        // --- 3. Optimization (gltfpack) ---
         public bool UseKtx2TextureCompression { get; set; } = false;
+        public int TextureQuality { get; set; } = 8;
+        public bool UseMeshoptimizer { get; set; } = false;
+        public bool UseCustomVertexPrecision { get; set; } = false;
+        public VertexPrecision VertexPositionPrecision { get; set; } = VertexPrecision.High;
+        public double SimplificationRatio { get; set; } = 0.0; 
 
-        // ── Future options (placeholders) ──────────────────────────────────────
-        // Add new export options here. Each option should be self-contained and
-        // documented with its effect, required dependencies, and default value.
-        //
-        // Example:
-        //   /// <summary>Merge all elements into a single mesh node.</summary>
-        //   public bool MergeAllMeshes { get; set; } = false;
+        // --- 4. Output Path ---
+        public string ExportFilePath { get; set; } = string.Empty;
+
     }
 }

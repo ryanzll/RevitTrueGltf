@@ -1,28 +1,58 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
+using System;
 using System.Windows;
-using System.Windows.Controls;
-using System.Windows.Data;
-using System.Windows.Documents;
-using System.Windows.Input;
-using System.Windows.Media;
-using System.Windows.Media.Imaging;
-using System.Windows.Navigation;
-using System.Windows.Shapes;
+using Microsoft.Win32;
 
 namespace RevitTrueGltf
 {
     /// <summary>
     /// Interaction logic for MainWindow.xaml
     /// </summary>
-    public partial class MainWindow : Window
+    public partial class MainWindow
     {
-        public MainWindow()
+        private readonly ExportSettingsVM _viewModel;
+
+        public MainWindow(ExportSettingsVM viewModel)
         {
             InitializeComponent();
+            
+            Wpf.Ui.Appearance.ApplicationThemeManager.Apply(this);
+            
+            _viewModel = viewModel;
+            DataContext = _viewModel;
+        }
+
+        private void OnBrowseClick(object sender, RoutedEventArgs e)
+        {
+            SaveFileDialog saveFileDialog = new SaveFileDialog();
+            saveFileDialog.Filter = "glTF Binary (*.glb)|*.glb|glTF JSON (*.gltf)|*.gltf";
+            saveFileDialog.Title = "Select Output Location";
+            saveFileDialog.FileName = System.IO.Path.GetFileName(_viewModel.ExportFilePath);
+            
+            if (saveFileDialog.ShowDialog() == true)
+            {
+                _viewModel.ExportFilePath = saveFileDialog.FileName;
+            }
+        }
+
+        private void OnCancelClick(object sender, RoutedEventArgs e)
+        {
+            DialogResult = false;
+            Close();
+        }
+
+        private void OnExportClick(object sender, RoutedEventArgs e)
+        {
+            if (string.IsNullOrWhiteSpace(_viewModel.ExportFilePath))
+            {
+                Wpf.Ui.Controls.MessageBox messageBox = new Wpf.Ui.Controls.MessageBox();
+                messageBox.Title = "Missing Path";
+                messageBox.Content = "Please specify an output path before exporting.";
+                messageBox.ShowDialogAsync();
+                return;
+            }
+
+            DialogResult = true;
+            Close();
         }
     }
 }

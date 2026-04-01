@@ -1,12 +1,155 @@
-﻿<Window x:Class="RevitTrueGltf.MainWindow"
+<ui:FluentWindow x:Class="RevitTrueGltf.MainWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        xmlns:ui="http://schemas.lepo.co/wpfui/2022/xaml"
         xmlns:local="clr-namespace:RevitTrueGltf"
+        xmlns:conv="clr-namespace:RevitTrueGltf.Converters"
         mc:Ignorable="d"
-        Title="MainWindow" Height="450" Width="800">
-    <Grid>
-        
+        d:DataContext="{d:DesignInstance local:ExportSettingsVM}"
+        Title="RevitTrueGltf Export Settings" 
+        Height="720" Width="480" MinWidth="480"
+        WindowStartupLocation="CenterScreen"
+        ExtendsContentIntoTitleBar="True"
+        WindowBackdropType="Mica"
+        Icon="pack://application:,,,/RevitTrueGltf;component/images/RevitTrueGltf.png">
+
+    <Window.Resources>
+        <conv:EnumToBooleanConverter x:Key="EnumToBoolConverter" />
+    </Window.Resources>
+
+    <Grid Background="{DynamicResource ApplicationBackgroundBrush}">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <!-- Custom Title Bar -->
+        <ui:TitleBar Title="RevitTrueGltf Export Settings" Grid.Row="0">
+            <ui:TitleBar.Icon>
+                <ui:SymbolIcon Symbol="Share48" />
+            </ui:TitleBar.Icon>
+        </ui:TitleBar>
+
+        <ScrollViewer Grid.Row="1" Margin="20,10,20,10" VerticalScrollBarVisibility="Auto">
+            <StackPanel>
+                
+                <!-- Header / Logo Section -->
+                <StackPanel Orientation="Horizontal" Margin="0,5,0,10">
+                    <Image Source="pack://application:,,,/RevitTrueGltf;component/images/RevitTrueGltf.png" Width="40" Height="40" Margin="0,0,12,0"/>
+                    <StackPanel VerticalAlignment="Center">
+                        <TextBlock Text="RevitTrueGltf" FontSize="18" FontWeight="SemiBold" Foreground="{DynamicResource TextFillColorPrimaryBrush}"/>
+                        <TextBlock Text="Professional Revit to glTF/GLB Export" FontSize="11" Foreground="{DynamicResource TextFillColorSecondaryBrush}"/>
+                    </StackPanel>
+                </StackPanel>
+
+                <!-- 📁 Export Scope Group -->
+                <ui:CardExpander Header="📁 Export Scope" IsExpanded="True" Margin="0,0,0,12">
+                    <StackPanel Margin="5,0,0,0">
+                        <CheckBox Content="Export Floors (Slab Geometry)" IsChecked="{Binding ExportFloors}" Margin="0,0,0,8" />
+                        <CheckBox Content="Export Visible Elements Only" IsChecked="{Binding VisibleElementsOnly}" Margin="0,0,0,8" />
+                        <CheckBox Content="Export BIM Properties (Metadata)" IsChecked="{Binding ExportBimProperties}" Margin="0,0,0,8" />
+                        <CheckBox Content="Include Linked Revit Models" IsChecked="{Binding IncludeLinkedModels}" />
+                    </StackPanel>
+                </ui:CardExpander>
+
+                <!-- 📊 Presets Section -->
+                <ui:CardExpander IsExpanded="True" Margin="0,0,0,12">
+                    <ui:CardExpander.Header>
+                        <StackPanel Orientation="Horizontal">
+                            <ui:SymbolIcon Symbol="DeveloperBoard24" Margin="0,0,8,0" VerticalAlignment="Center"/>
+                            <TextBlock Text="Export Presets" FontSize="15" FontWeight="SemiBold" VerticalAlignment="Center"/>
+                        </StackPanel>
+                    </ui:CardExpander.Header>
+                    <StackPanel Margin="5,8,0,0">
+                        <Grid HorizontalAlignment="Left">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="100" />
+                                <ColumnDefinition Width="120" />
+                                <ColumnDefinition Width="*" />
+                            </Grid.ColumnDefinitions>
+                            <RadioButton Grid.Column="0" Content="Draft" GroupName="Presets" IsChecked="{Binding SelectedPreset, Converter={StaticResource EnumToBoolConverter}, ConverterParameter=Draft}" HorizontalAlignment="Left"/>
+                            <RadioButton Grid.Column="1" Content="Balanced" GroupName="Presets" IsChecked="{Binding SelectedPreset, Converter={StaticResource EnumToBoolConverter}, ConverterParameter=Balanced}" HorizontalAlignment="Left"/>
+                            <RadioButton Grid.Column="2" Content="High Fidelity" GroupName="Presets" IsChecked="{Binding SelectedPreset, Converter={StaticResource EnumToBoolConverter}, ConverterParameter=HighFidelity}" HorizontalAlignment="Left" />
+                        </Grid>
+                        <TextBlock Text="* Presets automatically update Appearance and Optimization settings below." 
+                                   Margin="0,12,0,0" 
+                                   FontSize="11" 
+                                   Foreground="{DynamicResource TextFillColorSecondaryBrush}"/>
+                    </StackPanel>
+                </ui:CardExpander>
+
+                <!-- 🎨 Appearance Group -->
+                <ui:CardExpander Header="🎨 Appearance" IsExpanded="True" Margin="0,0,0,12">
+                    <StackPanel Margin="5,0,0,0">
+                        <TextBlock Text="Material Mode" FontSize="13" FontWeight="Medium" Margin="0,0,0,6"/>
+                        <StackPanel Orientation="Horizontal">
+                            <RadioButton Content="Texture Mode" IsChecked="{Binding MaterialExportMode, Converter={StaticResource EnumToBoolConverter}, ConverterParameter=Texture}" GroupName="MaterialMode" />
+                            <RadioButton Content="Color Mode" Margin="20,0,0,0" IsChecked="{Binding MaterialExportMode, Converter={StaticResource EnumToBoolConverter}, ConverterParameter=ColorOnly}" GroupName="MaterialMode" />
+                        </StackPanel>
+                    </StackPanel>
+                </ui:CardExpander>
+
+                <!-- ⚡ Optimization Group -->
+                <ui:CardExpander Header="⚡ Optimization" IsExpanded="True" Margin="0,0,0,12">
+                    <StackPanel Margin="5,0,0,0">
+                        <CheckBox x:Name="CbKtx2" Content="Enable KTX2 Compression" IsChecked="{Binding UseKtx2}" Margin="0,0,0,6" />
+                        <StackPanel IsEnabled="{Binding ElementName=CbKtx2, Path=IsChecked}" Margin="26,0,0,10">
+                            <DockPanel>
+                                <TextBlock Text="Texture Quality" VerticalAlignment="Center"/>
+                                <TextBlock Text="{Binding TextureQuality}" DockPanel.Dock="Right" VerticalAlignment="Center" Margin="12,0,0,0"/>
+                                <Slider Minimum="1" Maximum="10" Value="{Binding TextureQuality}" Margin="12,0,0,0" TickFrequency="1" IsSnapToTickEnabled="True" />
+                            </DockPanel>
+                        </StackPanel>
+
+                        <CheckBox Content="Enable Meshopt Compression" IsChecked="{Binding UseMeshopt}" Margin="0,0,0,2" />
+                        <TextBlock Text="Requires client-side meshopt_decoder.js" FontSize="10" Margin="26,0,0,10" Foreground="{DynamicResource TextFillColorSecondaryBrush}"/>
+
+                        <StackPanel>
+                            <CheckBox x:Name="CbPrecision" Content="Enable Custom Vertex Precision" IsChecked="{Binding UseVertexPrecision}" Margin="0,0,0,6"/>
+                            <StackPanel Orientation="Horizontal" IsEnabled="{Binding ElementName=CbPrecision, Path=IsChecked}" Margin="26,0,0,0">
+                                <RadioButton Content="Std (14)" GroupName="Precision" IsChecked="{Binding VertexPositionPrecision, Converter={StaticResource EnumToBoolConverter}, ConverterParameter=Standard}" />
+                                <RadioButton Content="High (16)" Margin="16,0" GroupName="Precision" IsChecked="{Binding VertexPositionPrecision, Converter={StaticResource EnumToBoolConverter}, ConverterParameter=High}" />
+                                <RadioButton Content="Very High (18)" GroupName="Precision" IsChecked="{Binding VertexPositionPrecision, Converter={StaticResource EnumToBoolConverter}, ConverterParameter=VeryHigh}" />
+                            </StackPanel>
+                        </StackPanel>
+
+                        <!-- Advanced Section -->
+                        <ui:CardExpander Header="▶ Advanced Optimization" Margin="0,12,0,0">
+                            <StackPanel Margin="4,8,4,4">
+                                <DockPanel Margin="0,0,0,8">
+                                    <TextBlock Text="Mesh reduction" VerticalAlignment="Center"/>
+                                    <TextBlock Text="{Binding SimplificationRatio, StringFormat={}{0:P0}}" DockPanel.Dock="Right" VerticalAlignment="Center" Margin="12,0,0,0"/>
+                                    <Slider Minimum="0" Maximum="0.9" Value="{Binding SimplificationRatio}" Margin="12,0,0,0" TickFrequency="0.05" IsSnapToTickEnabled="True" />
+                                </DockPanel>
+                                <ui:InfoBar Title="Notice" Message="May cause deformation. Best for distant LOD." IsClosable="False" Severity="Warning" IsOpen="True"/>
+                            </StackPanel>
+                        </ui:CardExpander>
+                    </StackPanel>
+                </ui:CardExpander>
+
+                <!-- 输出路径 / Output Path Section -->
+                <TextBlock Text="Output Location" FontSize="13" FontWeight="Medium" Margin="5,12,0,8"/>
+                <Grid Margin="5,0,0,20">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <ui:TextBox Grid.Column="0" Text="{Binding ExportFilePath, UpdateSourceTrigger=PropertyChanged}" PlaceholderText="Select glTF output path..." VerticalAlignment="Center"/>
+                    <ui:Button Grid.Column="1" Content="..." Width="40" Margin="8,0,0,0" Click="OnBrowseClick" VerticalAlignment="Center"/>
+                </Grid>
+
+            </StackPanel>
+        </ScrollViewer>
+
+        <!-- Footer Action Area -->
+        <Border Grid.Row="2" Background="{DynamicResource ControlFillColorDefaultBrush}" BorderBrush="{DynamicResource ControlStrokeColorDefaultBrush}" BorderThickness="0,1,0,0" Padding="20">
+            <Grid>
+                <ui:Button Content="Cancel" Width="100" HorizontalAlignment="Left" Click="OnCancelClick" />
+                <ui:Button x:Name="BtnExport" Appearance="Primary" Content="Export Now" Width="120" HorizontalAlignment="Right" Click="OnExportClick" />
+            </Grid>
+        </Border>
     </Grid>
-</Window>
+</ui:FluentWindow>

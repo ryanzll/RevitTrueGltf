@@ -32,7 +32,12 @@ namespace RevitTrueGltf
         /// </summary>
         public void Write(SceneBuilder scene, string filePath)
         {
-            bool needGltfpack = _settings.UseMeshoptimizer || _settings.UseKtx2TextureCompression;
+            // Check if we need to run gltfpack for optimization or compression
+            bool needGltfpack = _settings.UseMeshoptimizer 
+                             || _settings.UseKtx2TextureCompression 
+                             || _settings.UseCustomVertexPrecision
+                             || _settings.SimplificationRatio > 0;
+
             if (!needGltfpack)
             {
                 scene.ToGltf2().Save(filePath);
@@ -78,7 +83,26 @@ namespace RevitTrueGltf
                 args.Append(" -c");           // EXT_meshopt_compression
 
             if (_settings.UseKtx2TextureCompression)
+            {
                 args.Append(" -tc");          // KHR_texture_basisu / KTX2
+                args.Append($" -tq {_settings.TextureQuality}");
+            }
+
+            // Apply vertex precision or disable quantization entirely
+            if (_settings.UseCustomVertexPrecision)
+            {
+                args.Append($" -vp {(int)_settings.VertexPositionPrecision}");
+            }
+            else
+            {
+                args.Append(" -noq"); // Disable quantization
+            }
+
+            // Apply simplification ratio if greater than 0
+            if (_settings.SimplificationRatio > 0)
+            {
+                args.Append($" -si {_settings.SimplificationRatio:F2}");
+            }
 
             var stderrBuilder = new StringBuilder();
 

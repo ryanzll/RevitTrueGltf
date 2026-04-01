@@ -10,9 +10,12 @@
       <PackageReference Include="SharpGLTF.Core" Version="1.0.6" />
       <PackageReference Include="SharpGLTF.Toolkit" Version="1.0.6" />
       <PackageReference Include="SixLabors.ImageSharp" Version="2.1.13" />
+      <PackageReference Include="WPF-UI" Version="4.2.0" />
     </ItemGroup>
     <ItemGroup>
-      <EditorConfigFiles Remove="F:\work\PersonalProject\RevitTrueGltf\src\RevitTrueGltf\.editorconfig" />
+      <Resource Include="..\..\images\**\*">
+        <Link>images\%(RecursiveDir)%(Filename)%(Extension)</Link>
+      </Resource>
     </ItemGroup>
     <ItemGroup>
       <None Include="..\RevitTrueGltf.addin">

@@ -21,13 +21,20 @@ namespace RevitTrueGltf
 
             MaterialUtils.Init(commandData.Application.Application);
 
-            // TODO: Replace default settings with values from a settings dialog / persistent storage.
-            var settings = new ExportSettings
+            // Prepare default path
+            string defaultFileName = System.IO.Path.ChangeExtension(doc.Title, ".glb");
+            string defaultPath = System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Desktop), defaultFileName);
+
+            // Show settings dialog
+            var settings = new ExportSettings { ExportFilePath = defaultPath };
+            var vm = new ExportSettingsVM(settings);
+            var window = new MainWindow(vm);
+            if (window.ShowDialog() != true)
             {
-                UseMeshoptimizer = false,
-                UseKtx2TextureCompression = false,
-            };
-            ExportGltfContext context = new ExportGltfContext(doc);
+                return Result.Cancelled;
+            }
+
+            ExportGltfContext context = new ExportGltfContext(doc, settings);
 
             using (CustomExporter exporter = new CustomExporter(doc, context))
             {
@@ -38,20 +45,15 @@ namespace RevitTrueGltf
                 {
                     exporter.Export(doc.ActiveView);
 
-                    Microsoft.Win32.SaveFileDialog saveFileDialog = new Microsoft.Win32.SaveFileDialog();
-                    saveFileDialog.Filter = "glTF Binary (*.glb)|*.glb|glTF JSON (*.gltf)|*.gltf";
-                    saveFileDialog.Title = "Save Exported glTF";
-                    saveFileDialog.FileName = doc.Title;
+                    // Path is already pre-selected in the UI
+                    string exportPath = settings.ExportFilePath;
+                    if (string.IsNullOrEmpty(exportPath))
+                    {
+                        return Result.Failed;
+                    }
 
-                    if (saveFileDialog.ShowDialog() == true)
-                    {
-                        new GltfWriter(settings).Write(context.ToScene(), saveFileDialog.FileName);
-                        TaskDialog.Show("Success", "Export glTF/glb Success");
-                    }
-                    else
-                    {
-                        return Result.Cancelled;
-                    }
+                    new GltfWriter(settings).Write(context.ToScene(), exportPath);
+                    TaskDialog.Show("Success", "Export glTF/glb Success\nPath: " + exportPath);
 
                     return Result.Succeeded;
                 }

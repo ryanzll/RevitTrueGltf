@@ -22,10 +22,12 @@ namespace RevitTrueGltf
 
         private ElementInfo _elementInfo = new ElementInfo();
         private Document _document = null;
+        private ExportSettings _settings = null;
 
-        public ExportGltfContext(Document doc)
+        public ExportGltfContext(Document doc, ExportSettings settings)
         {
             _document = doc;
+            _settings = settings;
         }
 
         #region IExportContext
@@ -45,6 +47,28 @@ namespace RevitTrueGltf
             if (element == null)
             {
                 return RenderNodeAction.Skip;
+            }
+
+            // Skip hidden elements if only visible elements are requested
+            if (_settings != null && _settings.VisibleElementsOnly)
+            {
+                if (element.IsHidden(_document.ActiveView))
+                {
+                    return RenderNodeAction.Skip;
+                }
+            }
+
+            // Skip floors if not requested
+            if (_settings != null && !_settings.ExportFloors)
+            {
+                #if REVIT2024 || REVIT2025 || REVIT2026
+                if (element.Category != null && element.Category.Id.Value == (long)BuiltInCategory.OST_Floors)
+                #else
+                if (element.Category != null && element.Category.Id.IntegerValue == (int)BuiltInCategory.OST_Floors)
+                #endif
+                {
+                    return RenderNodeAction.Skip;
+                }
             }
 
             if (element is Family || element is FamilySymbol)
