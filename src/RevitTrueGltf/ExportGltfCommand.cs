@@ -21,9 +21,12 @@ namespace RevitTrueGltf
 
             MaterialUtils.Init(commandData.Application.Application);
 
-            // Prepare default path
+            // Prepare default path: use Revit file's directory if saved, otherwise fallback to Desktop
             string defaultFileName = System.IO.Path.ChangeExtension(doc.Title, ".glb");
-            string defaultPath = System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Desktop), defaultFileName);
+            string docDirectory = string.IsNullOrWhiteSpace(doc.PathName) 
+                ? Environment.GetFolderPath(Environment.SpecialFolder.Desktop) 
+                : System.IO.Path.GetDirectoryName(doc.PathName);
+            string defaultPath = System.IO.Path.Combine(docDirectory, defaultFileName);
 
             // Show settings dialog
             var settings = new ExportSettings { ExportFilePath = defaultPath };

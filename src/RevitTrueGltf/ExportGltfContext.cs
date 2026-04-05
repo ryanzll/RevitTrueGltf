@@ -13,14 +13,59 @@ namespace RevitTrueGltf
     using MeshBuilderType = MeshBuilder<VertexPositionNormalTangent, VertexTexture1, VertexEmpty>;
     using VertexBuilderType = VertexBuilder<VertexPositionNormalTangent, VertexTexture1, VertexEmpty>;
 
+    /// <summary>
+    /// Custom exporter context for converting Revit models to glTF scenes.
+    /// 
+    /// GRAPH HIERARCHY DESIGN & GLTF LIMITATIONS:
+    /// 
+    /// 1. The Matrix/Transform Limitation:
+    ///    In the glTF specification, a single Node can possess at most ONE local transform matrix.
+    ///    However, a Revit element (especially composed families or SuperComponents) might contain 
+    ///    multiple instances, each requiring its own unique spatial transform.
+    ///    
+    /// 2. The Solution (Zero-Transform Element Nodes):
+    ///    To safely support multiple instantiated pieces under a single element, and to prevent 
+    ///    "Double Transforms" caused by appending world-coordinate meshes into offset parent nodes,
+    ///    we utilize a strict "Zero-Transform" rule for architectural nodes.
+    ///    
+    ///    - Element Node: Represents the logical container for a Revit Element. It ALWAYS 
+    ///                    retains an Identity Matrix (0,0,0 coordinate offset). It serves exclusively 
+    ///                    as an anchor for BIM properties and a folder for visual components.
+    ///    - Geometry/Instance Child Nodes: All physical Meshes are attached to explicit, named sub-nodes 
+    ///                    ("Geometry" for direct meshes, "Instance" for transformed family instances).
+    ///                    These child nodes carry the actual physical offsets (if any).
+    /// 
+    /// 3. Clear Viewer Topology (Babylon.js/Three.js):
+    ///    This yields an extremely clean and uniform structure in web viewers:
+    ///    [Root Node] -> [Element Node (Identity Matrix)] -> [Mesh Sub-Node (Transform & Geometry)]
+    ///    This consistency makes parsing, hiding, and interacting with elements predictable for downstream developers.
+    ///    
+    ///    Example of the resulting node tree in a WebGL viewer (e.g. Babylon.js):
+    ///    
+    ///    📦 ElementNode (e.g. "Basic Wall [123456]")
+    ///     ┣ 📂 Geometry (For direct geometries like walls/floors)
+    ///     ┃  ┗ 📜 Geometry_primitive0
+    ///     ┃
+    ///     ┗ 📂 Instance (For family instances like doors/windows)
+    ///        ┣ 📜 Instance_primitive0
+    ///        ┗ 📜 Instance_primitive1
+    /// </summary>
     internal class ExportGltfContext : IExportContext
     {
+        // Required to track Revit's hierarchical Begin/End stream (Link->Element->Instance). 
+        // This allows us to correctly nest nodes and resolve parent-child relationships in the glTF scene.
+        private readonly Stack<ExportFrame> _stack = new Stack<ExportFrame>();
+
+        // Provides access to the immediate caller's context for current geometry or element processing.
+        private ExportFrame CurrentFrame => _stack.Count > 0 ? _stack.Peek() : null;
+
         private SceneBuilder _sceneBuilder = new SceneBuilder();
-        private MeshBuilderType _meshBuilder = new MeshBuilderType();
         private readonly Dictionary<ElementId, MeshBuilderType> _meshBuilderCache = new Dictionary<ElementId, MeshBuilderType>();
         private readonly Dictionary<ElementId, MaterialBuilder> _materialBuilderCache = new Dictionary<ElementId, MaterialBuilder>();
 
-        private ElementInfo _elementInfo = new ElementInfo();
+        private NodeBuilder _rootNode;
+        private readonly Dictionary<ElementId, NodeBuilder> _elementNodeMap = new Dictionary<ElementId, NodeBuilder>();
+
         private Document _document = null;
         private ExportSettings _settings = null;
 
@@ -42,51 +87,71 @@ namespace RevitTrueGltf
 
         public RenderNodeAction OnElementBegin(ElementId elementId)
         {
-            _elementInfo.Reset();
             var element = _document.GetElement(elementId);
-            if (element == null)
-            {
-                return RenderNodeAction.Skip;
-            }
+            if (element == null) return RenderNodeAction.Skip;
 
             // Skip hidden elements if only visible elements are requested
             if (_settings != null && _settings.VisibleElementsOnly)
             {
-                if (element.IsHidden(_document.ActiveView))
-                {
-                    return RenderNodeAction.Skip;
-                }
+                if (element.IsHidden(_document.ActiveView)) return RenderNodeAction.Skip;
             }
 
             // Skip floors if not requested
             if (_settings != null && !_settings.ExportFloors)
             {
-                #if REVIT2024 || REVIT2025 || REVIT2026
-                if (element.Category != null && element.Category.Id.Value == (long)BuiltInCategory.OST_Floors)
-                #else
-                if (element.Category != null && element.Category.Id.IntegerValue == (int)BuiltInCategory.OST_Floors)
-                #endif
+                if (element.Category != null && element.Category.Id.GetIdValue() == (long)BuiltInCategory.OST_Floors)
                 {
                     return RenderNodeAction.Skip;
                 }
             }
 
-            if (element is Family || element is FamilySymbol)
+            // Prepare the Element Frame (Delay node creation until mesh or child exists)
+            var elementFrame = new ExportFrame 
+            { 
+                Type = ExportFrameType.Element,
+                Parent = CurrentFrame,
+                NodeName = $"{element.Name} [{elementId.GetIdValue()}]",
+                ElementId = elementId 
+            };
+
+            // Set logical parent if this is a SubComponent
+            var famInst = element as FamilyInstance;
+            if (famInst != null && famInst.SuperComponent != null)
             {
-                return RenderNodeAction.Skip;
+                elementFrame.ParentId = famInst.SuperComponent.Id;
             }
 
-            _elementInfo.Id = elementId;
-            _meshBuilder = new MeshBuilderType();
+            // Important: If we are re-entering an element already created via recursion, 
+            // ensure we don't duplicate its node mapping.
+            if (_elementNodeMap.TryGetValue(elementId, out var existingNode))
+            {
+                elementFrame.Node = existingNode;
+            }
+
+            _stack.Push(elementFrame);
+
             return RenderNodeAction.Proceed;
         }
 
         public void OnElementEnd(ElementId elementId)
         {
-            if (_meshBuilder != null)
+            if (_stack.Count == 0) return;
+            var frame = _stack.Pop();
+
+            if (frame.MeshBuilder != null && frame.MeshBuilder.Primitives.Count > 0)
             {
-                _sceneBuilder.AddRigidMesh(_meshBuilder, Matrix4x4.Identity);
-                _meshBuilder = null;
+                // Ensure the node exists before adding direct geometry
+                var node = GetOrCreateGltfNode(frame);
+
+                // Assign mesh to an explicitly named child node for structural clarity
+                var geomNode = node.CreateNode("Geometry");
+                _sceneBuilder.AddRigidMesh(frame.MeshBuilder, geomNode);
+            }
+            
+            // Update the map if the node was actually created
+            if (frame.Node != null && !_elementNodeMap.ContainsKey(elementId))
+            {
+                _elementNodeMap[elementId] = frame.Node;
             }
         }
 
@@ -101,41 +166,65 @@ namespace RevitTrueGltf
 
         public RenderNodeAction OnInstanceBegin(InstanceNode node)
         {
-#if REVIT2024 || REVIT2025 || REVIT2026
-            _elementInfo.SymbolId = node.GetSymbolGeometryId().SymbolId;
-#else
-            _elementInfo.SymbolId = node.GetSymbolId();
-#endif
-            if (_meshBuilderCache.ContainsKey(_elementInfo.SymbolId))
+            var symbolId = node.GetSymbolId();
+
+            var parentFrame = CurrentFrame;
+            if (parentFrame == null) return RenderNodeAction.Skip;
+
+            var transformMatrix = ConvertTransform(node.GetTransform());
+            string nodeName = string.IsNullOrEmpty(node.NodeName) ? "Instance" : node.NodeName;
+            if (nodeName.StartsWith("RNT_")) nodeName = "Instance";
+
+            // Prepare lazy frame
+            var instanceFrame = new ExportFrame 
+            { 
+                Type = ExportFrameType.Instance,
+                Parent = parentFrame,
+                ParentId = parentFrame.Type == ExportFrameType.Element ? parentFrame.ElementId : ElementId.InvalidElementId,
+                NodeName = nodeName,
+                LocalMatrix = transformMatrix,
+                ElementId = parentFrame.ElementId, 
+                SymbolId = symbolId,
+                MaterialId = parentFrame.MaterialId
+            };
+
+            if (_meshBuilderCache.TryGetValue(symbolId, out var cachedMesh))
             {
+                if (cachedMesh.Primitives.Count > 0)
+                {
+                    // For cached mesh, we MUST create the node now
+                    var instanceNode = GetOrCreateGltfNode(instanceFrame);
+                    _sceneBuilder.AddRigidMesh(cachedMesh, instanceNode);
+                }
                 return RenderNodeAction.Skip;
             }
+
+            instanceFrame.EnsureMeshBuilder();
+            _stack.Push(instanceFrame);
 
             return RenderNodeAction.Proceed;
         }
 
         public void OnInstanceEnd(InstanceNode node)
         {
-            if (_elementInfo.SymbolId != ElementId.InvalidElementId &&
-#if REVIT2024 || REVIT2025 || REVIT2026
-                _elementInfo.SymbolId == node.GetSymbolGeometryId().SymbolId &&
-#else
-                _elementInfo.SymbolId == node.GetSymbolId() &&
-#endif
-                _meshBuilder != null)
+            if (_stack.Count == 0) return;
+            var frame = _stack.Pop();
+
+            // Only process if this frame was pushed by OnInstanceBegin (Symbol capture)
+            if (frame != null && frame.SymbolId != ElementId.InvalidElementId)
             {
-                MeshBuilderType meshBuilder = null;
-                var transformMatrix = ConvertTransform(node.GetTransform());
-                if (_meshBuilderCache.TryGetValue(_elementInfo.SymbolId, out meshBuilder))
+                if (frame.MeshBuilder != null && frame.MeshBuilder.Primitives.Count > 0)
                 {
-                    _sceneBuilder.AddRigidMesh(meshBuilder, transformMatrix);
+                    // Cache the captured mesh if not already cached
+                    if (!_meshBuilderCache.ContainsKey(frame.SymbolId))
+                    {
+                        _meshBuilderCache.Add(frame.SymbolId, frame.MeshBuilder);
+                    }
+                    
+                    // Add it to the scene attached to the instance node (lazily created if needed)
+                    var gltfNode = GetOrCreateGltfNode(frame);
+                    _sceneBuilder.AddRigidMesh(frame.MeshBuilder, gltfNode);
                 }
-                else
-                {
-                    _meshBuilderCache.Add(_elementInfo.SymbolId, _meshBuilder);
-                    _sceneBuilder.AddRigidMesh(_meshBuilder, transformMatrix);
-                }
-                _meshBuilder = null;
             }
         }
 
@@ -145,23 +234,39 @@ namespace RevitTrueGltf
 
         public RenderNodeAction OnLinkBegin(LinkNode node)
         {
+            var linkDoc = node.GetDocument();
+            var linkFrame = new ExportFrame
+            {
+                Type = ExportFrameType.Link,
+                Parent = CurrentFrame,
+                NodeName = linkDoc?.Title ?? "Linked Model",
+                LocalMatrix = ConvertTransform(node.GetTransform())
+            };
+
+            _stack.Push(linkFrame);
             return RenderNodeAction.Proceed;
         }
 
         public void OnLinkEnd(LinkNode node)
         {
+            if (_stack.Count > 0)
+            {
+                _stack.Pop();
+            }
         }
 
         public void OnMaterial(MaterialNode node)
         {
             try
             {
-                _elementInfo.MaterialId = node.MaterialId;
-                MaterialBuilder materialBuilder = null;
-                if (!_materialBuilderCache.TryGetValue(_elementInfo.MaterialId, out materialBuilder))
+                var frame = CurrentFrame;
+                if (frame == null) return;
+
+                frame.MaterialId = node.MaterialId;
+                if (!_materialBuilderCache.ContainsKey(frame.MaterialId))
                 {
                     MaterialUtils materialUtils = new MaterialUtils();
-                    materialBuilder = new MaterialBuilder(node.NodeName);
+                    var materialBuilder = new MaterialBuilder(node.NodeName);
                     if (!materialUtils.Convert(node, materialBuilder))
                     {
                         var color = node.Color;
@@ -173,7 +278,7 @@ namespace RevitTrueGltf
                             materialBuilder.WithAlpha(AlphaMode.BLEND);
                         }
                     }
-                    _materialBuilderCache.Add(_elementInfo.MaterialId, materialBuilder);
+                    _materialBuilderCache.Add(frame.MaterialId, materialBuilder);
                 }
             }
             catch (Exception ex)
@@ -186,18 +291,17 @@ namespace RevitTrueGltf
         {
             try
             {
+                var frame = CurrentFrame;
+                if (frame == null) return;
+
                 MaterialBuilder materialBuilder = null;
-                if (!_materialBuilderCache.TryGetValue(_elementInfo.MaterialId, out materialBuilder))
+                if (!_materialBuilderCache.TryGetValue(frame.MaterialId, out materialBuilder))
                 {
                     materialBuilder = new MaterialBuilder("Default").WithBaseColor(new Vector4(0.8f, 0.8f, 0.8f, 1.0f));
                 }
 
-                // if a instance has nested instance and another mesh
-                if (_meshBuilder == null)
-                {
-                    _meshBuilder = new MeshBuilderType();
-                }
-                var primitive = _meshBuilder.UsePrimitive(materialBuilder);
+                frame.EnsureMeshBuilder();
+                var primitive = frame.MeshBuilder.UsePrimitive(materialBuilder);
 
                 var points = node.GetPoints();
                 var uvs = node.GetUVs();
@@ -237,7 +341,7 @@ namespace RevitTrueGltf
             }
             catch (Exception ex)
             {
-                throw ex;
+                throw;
             }
         }
 
@@ -256,6 +360,19 @@ namespace RevitTrueGltf
 
         public bool Start()
         {
+            // Initialize the project root node
+            string projectName = _document.ProjectInformation.Name;
+            _rootNode = new NodeBuilder(string.IsNullOrEmpty(projectName) ? "Revit Model" : projectName);
+            _sceneBuilder.AddNode(_rootNode);
+
+            // 压入顶层 Document Frame
+            _stack.Push(new ExportFrame
+            {
+                Type = ExportFrameType.Document,
+                Node = _rootNode,
+                NodeName = projectName
+            });
+
             return true;
         }
         #endregion
@@ -432,6 +549,64 @@ namespace RevitTrueGltf
             }
 
             return XYZ.Zero;
+        }
+        #endregion
+
+        #region Frame
+        private NodeBuilder GetOrCreateGltfNode(ExportFrame frame)
+        {
+            if (frame.Node != null) return frame.Node;
+
+            NodeBuilder parentNode;
+            if (frame.Parent != null) 
+            {
+                // 1. Priority: Immediate stack parent (for Link/Instance nesting)
+                parentNode = GetOrCreateGltfNode(frame.Parent);
+            }
+            else 
+            {
+                // 2. Fallback: Logical parent ID (for flattened SuperComponent hierarchy)
+                parentNode = GetOrCreateElementNode(frame.ParentId);
+            }
+
+            frame.Node = parentNode.CreateNode(frame.NodeName);
+            frame.Node.LocalMatrix = frame.LocalMatrix;
+            
+            // Register this node in the map immediately to make it available for its own SubComponents
+            if (frame.ElementId != ElementId.InvalidElementId && !_elementNodeMap.ContainsKey(frame.ElementId))
+            {
+                _elementNodeMap[frame.ElementId] = frame.Node;
+            }
+
+            return frame.Node;
+        }
+
+        /// <summary>
+        /// Recursively ensures a logical Node exists for a given element ID.
+        /// Rebuilds SuperComponent hierarchies correctly even if they were processed earlier in the stream.
+        /// </summary>
+        private NodeBuilder GetOrCreateElementNode(ElementId id)
+        {
+            if (id == null || id == ElementId.InvalidElementId) return _rootNode;
+            if (_elementNodeMap.TryGetValue(id, out var node)) return node;
+
+            var element = _document.GetElement(id);
+            if (element == null) return _rootNode;
+
+            // Resolve logical parent (SuperComponent)
+            ElementId parentId = ElementId.InvalidElementId;
+            if (element is FamilyInstance famInst && famInst.SuperComponent != null)
+            {
+                parentId = famInst.SuperComponent.Id;
+            }
+
+            // Recursive climb to the root of the SuperComponent chain
+            var parentNode = GetOrCreateElementNode(parentId);
+
+            var newNodeName = $"{element.Name} [{id.GetIdValue()}]";
+            var newNode = parentNode.CreateNode(newNodeName);
+            _elementNodeMap[id] = newNode;
+            return newNode;
         }
         #endregion
 

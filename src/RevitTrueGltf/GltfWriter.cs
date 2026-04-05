@@ -79,6 +79,9 @@ namespace RevitTrueGltf
             var args = new StringBuilder();
             args.Append($"-i \"{inputPath}\" -o \"{outputPath}\"");
 
+            // For BIM exports, we MUST keep named nodes to preserve the Element/Instance hierarchy
+            args.Append(" -kn");
+
             if (_settings.UseMeshoptimizer)
                 args.Append(" -c");           // EXT_meshopt_compression
 
