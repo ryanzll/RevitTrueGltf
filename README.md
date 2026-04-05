@@ -56,9 +56,9 @@ In terms of material conversion, the exporter deeply analyzes Revit's internal m
 | **Revit Decals** | - | - |
 | **Procedural Maps (Wood, Marble, etc.)** | - | - |
 | **Advanced Texture Transform (UV Offset/Scale)**| - | - |
-| **Basis Universal (KTX2) Texture Compression** | - | ✔️ |
-| **Draco Geometry Compression** | - | ✔️ |
-| **Meshoptimizer Support** | - | ✔️ |
+| **Basis Universal (KTX2) Texture Compression** | ✔️ | - |
+| **Draco Geometry Compression** | - | - |
+| **Meshoptimizer Support** | ✔️ | - |
 | **Extract General Revit Property Data (BIM Info)** | - | ✔️ |
 
 ## 4. How to Install & Test
