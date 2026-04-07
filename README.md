@@ -42,8 +42,12 @@ In terms of material conversion, the exporter deeply analyzes Revit's internal m
 - **Normal Maps (Converted from Bump)**: Because Revit internally uses grayscale Bump Maps, the plugin features a high-performance, zero-allocation algorithm to dynamically convert them into standard Tangent-Space Normal Maps. This ensures correct bump mapping and surface detail in standard rendering engines.
 - **Glazing / Transmissive Materials**: Specifically targets Revit's glazing material classes. It uses the `KHR_materials_transmission` extension for physically accurate glass. This correctly exports **Transmission** (light passthrough), **Index of Refraction (IOR)**, and **Volume** properties. It also implements a standard Alpha Blending fallback for simpler renderer compatibility.
 - **Transparency / Opacity**: Extracts and configures proper blending modes and alpha cutoffs based on the source Revit material setup.
+- **Revit Parameters**: Extracts original Revit parameters (Identity Data, Dimensions, Project Info) and provides three distinct export modes to suit different application scenarios:
+    - **Flat Embedded**: Directly embeds parameter data into each glTF node's `extras`. This is the most compatible mode for standard glTF viewers and is ideal for **prototyping and rapid development validation**, as metadata can be inspected immediately without additional processing.
+    - **Schema Referenced**: Stores a global parameter schema at the root and uses indexed references for each element. This significantly reduces redundancy and file size for large-scale models.
+    - **External SQLite**: Exports parameter data into a standalone `.sqlite` database companion file. This is the professional choice for **Operation & Maintenance (O&M)** systems, allowing for flexible post-processing, data transformation, and real-time backend updates without modifying the 3D model itself.
 
-### Detailed Material Property Support Matrix
+### Detailed Material & Data Support Matrix
 
 | Material Property / Feature | Supported | Planned (Roadmap) |
 | :--- | :---: | :---: |
@@ -59,7 +63,7 @@ In terms of material conversion, the exporter deeply analyzes Revit's internal m
 | **Basis Universal (KTX2) Texture Compression** | ✔️ | - |
 | **Draco Geometry Compression** | - | - |
 | **Meshoptimizer Support** | ✔️ | - |
-| **Extract General Revit Property Data (BIM Info)** | - | ✔️ |
+| **Extract Revit parameters** | ✔️ | - |
 
 ## 4. How to Install & Test
 
