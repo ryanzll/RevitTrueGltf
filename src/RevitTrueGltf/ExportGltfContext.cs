@@ -1,4 +1,6 @@
 using Autodesk.Revit.DB;
+using RevitTrueGltf.ExportStrategies;
+using RevitTrueGltf.Models;
 using RevitTrueGltf.Utils;
 using SharpGLTF.Geometry;
 using SharpGLTF.Geometry.VertexTypes;
@@ -69,6 +71,8 @@ namespace RevitTrueGltf
         private Document _document = null;
         private ExportSettings _settings = null;
 
+        private IParameterExportStrategy _parameterStrategy;
+
         public ExportGltfContext(Document doc, ExportSettings settings)
         {
             _document = doc;
@@ -78,6 +82,14 @@ namespace RevitTrueGltf
         #region IExportContext
         public void Finish()
         {
+            if (_parameterStrategy != null)
+            {
+                _parameterStrategy.FinalizeExport();
+            }
+
+            var model = _sceneBuilder.ToGltf2();
+
+            new GltfWriter(_settings).Write(model, _settings.ExportFilePath);
         }
 
         public bool IsCanceled()
@@ -106,12 +118,12 @@ namespace RevitTrueGltf
             }
 
             // Prepare the Element Frame (Delay node creation until mesh or child exists)
-            var elementFrame = new ExportFrame 
-            { 
+            var elementFrame = new ExportFrame
+            {
                 Type = ExportFrameType.Element,
                 Parent = CurrentFrame,
                 NodeName = $"{element.Name} [{elementId.GetIdValue()}]",
-                ElementId = elementId 
+                ElementId = elementId
             };
 
             // Set logical parent if this is a SubComponent
@@ -145,13 +157,24 @@ namespace RevitTrueGltf
 
                 // Assign mesh to an explicitly named child node for structural clarity
                 var geomNode = node.CreateNode("Geometry");
-                _sceneBuilder.AddRigidMesh(frame.MeshBuilder, geomNode);
+                var instance = _sceneBuilder.AddRigidMesh(frame.MeshBuilder, geomNode);
             }
-            
+
             // Update the map if the node was actually created
-            if (frame.Node != null && !_elementNodeMap.ContainsKey(elementId))
+            if (frame.Node != null)
             {
-                _elementNodeMap[elementId] = frame.Node;
+                // Handle Parameters
+                if (_parameterStrategy != null)
+                {
+                    var element = _document.GetElement(elementId);
+                    var dto = RevitParameterExtractor.ExtractParameters(_document, element);
+                    _parameterStrategy.OnElement(dto, frame.Node);
+                }
+
+                if (!_elementNodeMap.ContainsKey(elementId))
+                {
+                    _elementNodeMap[elementId] = frame.Node;
+                }
             }
         }
 
@@ -176,14 +199,14 @@ namespace RevitTrueGltf
             if (nodeName.StartsWith("RNT_")) nodeName = "Instance";
 
             // Prepare lazy frame
-            var instanceFrame = new ExportFrame 
-            { 
+            var instanceFrame = new ExportFrame
+            {
                 Type = ExportFrameType.Instance,
                 Parent = parentFrame,
                 ParentId = parentFrame.Type == ExportFrameType.Element ? parentFrame.ElementId : ElementId.InvalidElementId,
                 NodeName = nodeName,
                 LocalMatrix = transformMatrix,
-                ElementId = parentFrame.ElementId, 
+                ElementId = parentFrame.ElementId,
                 SymbolId = symbolId,
                 MaterialId = parentFrame.MaterialId
             };
@@ -194,7 +217,7 @@ namespace RevitTrueGltf
                 {
                     // For cached mesh, we MUST create the node now
                     var instanceNode = GetOrCreateGltfNode(instanceFrame);
-                    _sceneBuilder.AddRigidMesh(cachedMesh, instanceNode);
+                    var instance = _sceneBuilder.AddRigidMesh(cachedMesh, instanceNode);
                 }
                 return RenderNodeAction.Skip;
             }
@@ -220,10 +243,10 @@ namespace RevitTrueGltf
                     {
                         _meshBuilderCache.Add(frame.SymbolId, frame.MeshBuilder);
                     }
-                    
+
                     // Add it to the scene attached to the instance node (lazily created if needed)
                     var gltfNode = GetOrCreateGltfNode(frame);
-                    _sceneBuilder.AddRigidMesh(frame.MeshBuilder, gltfNode);
+                    var instance = _sceneBuilder.AddRigidMesh(frame.MeshBuilder, gltfNode);
                 }
             }
         }
@@ -275,15 +298,15 @@ namespace RevitTrueGltf
                             WithBaseColor(new Vector4(color.Red / 255f, color.Green / 255f, color.Blue / 255f, (float)(1.0f - transparency)));
                         if (transparency > 0)
                         {
-                            materialBuilder.WithAlpha(AlphaMode.BLEND);
+                            materialBuilder.WithAlpha(SharpGLTF.Materials.AlphaMode.BLEND);
                         }
                     }
                     _materialBuilderCache.Add(frame.MaterialId, materialBuilder);
                 }
             }
-            catch (Exception ex)
+            catch (Exception)
             {
-                throw ex;
+                throw;
             }
         }
 
@@ -339,7 +362,7 @@ namespace RevitTrueGltf
                     facetIndex++;
                 }
             }
-            catch (Exception ex)
+            catch (Exception)
             {
                 throw;
             }
@@ -360,18 +383,32 @@ namespace RevitTrueGltf
 
         public bool Start()
         {
-            // Initialize the project root node
+            // 1. Initialize the project root node
             string projectName = _document.ProjectInformation.Name;
             _rootNode = new NodeBuilder(string.IsNullOrEmpty(projectName) ? "Revit Model" : projectName);
             _sceneBuilder.AddNode(_rootNode);
 
-            // 压入顶层 Document Frame
-            _stack.Push(new ExportFrame
+            // 2. Initialize Parameter Strategy
+            if (_settings.ExportRevitParameters)
             {
-                Type = ExportFrameType.Document,
-                Node = _rootNode,
-                NodeName = projectName
-            });
+                switch (_settings.RevitParameterMode)
+                {
+                    case RevitParameterMode.FlatEmbedded:
+                        _parameterStrategy = new FlatEmbeddedStrategy();
+                        break;
+                    case RevitParameterMode.SchemaReferenced:
+                        _parameterStrategy = new SchemaReferencedStrategy();
+                        break;
+                    case RevitParameterMode.ExternalSqlite:
+                        _parameterStrategy = new SqliteExternalStrategy();
+                        break;
+                    default:
+                        _parameterStrategy = new FlatEmbeddedStrategy();
+                        break;
+                }
+
+                _parameterStrategy.Initialize(_settings.ExportFilePath, _rootNode);
+            }
 
             return true;
         }
@@ -558,12 +595,12 @@ namespace RevitTrueGltf
             if (frame.Node != null) return frame.Node;
 
             NodeBuilder parentNode;
-            if (frame.Parent != null) 
+            if (frame.Parent != null)
             {
                 // 1. Priority: Immediate stack parent (for Link/Instance nesting)
                 parentNode = GetOrCreateGltfNode(frame.Parent);
             }
-            else 
+            else
             {
                 // 2. Fallback: Logical parent ID (for flattened SuperComponent hierarchy)
                 parentNode = GetOrCreateElementNode(frame.ParentId);
@@ -571,7 +608,7 @@ namespace RevitTrueGltf
 
             frame.Node = parentNode.CreateNode(frame.NodeName);
             frame.Node.LocalMatrix = frame.LocalMatrix;
-            
+
             // Register this node in the map immediately to make it available for its own SubComponents
             if (frame.ElementId != ElementId.InvalidElementId && !_elementNodeMap.ContainsKey(frame.ElementId))
             {

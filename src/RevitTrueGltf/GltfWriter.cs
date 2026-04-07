@@ -1,3 +1,4 @@
+using SharpGLTF.Schema2;
 using SharpGLTF.Scenes;
 using System;
 using System.Diagnostics;
@@ -26,11 +27,11 @@ namespace RevitTrueGltf
         }
 
         /// <summary>
-        /// Writes <paramref name="scene"/> to <paramref name="filePath"/>.
+        /// Writes <paramref name="model"/> to <paramref name="filePath"/>.
         /// If any gltfpack options are enabled in <see cref="ExportSettings"/>,
         /// the file is first saved to a temp path and then processed by gltfpack.
         /// </summary>
-        public void Write(SceneBuilder scene, string filePath)
+        public void Write(ModelRoot model, string filePath)
         {
             // Check if we need to run gltfpack for optimization or compression
             bool needGltfpack = _settings.UseMeshoptimizer 
@@ -40,13 +41,12 @@ namespace RevitTrueGltf
 
             if (!needGltfpack)
             {
-                scene.ToGltf2().Save(filePath);
+                model.Save(filePath);
                 return;
             }
 
             // Save to a temp .glb first, then let gltfpack produce the final file.
-            var model = scene.ToGltf2();
-            string tempPath = Path.ChangeExtension(Path.GetTempFileName(), ".glb");
+            string tempPath = Path.Combine(Path.GetTempPath(), Path.GetRandomFileName() + ".glb");
             try
             {
                 model.Save(tempPath);
@@ -79,8 +79,10 @@ namespace RevitTrueGltf
             var args = new StringBuilder();
             args.Append($"-i \"{inputPath}\" -o \"{outputPath}\"");
 
-            // For BIM exports, we MUST keep named nodes to preserve the Element/Instance hierarchy
+            // For Revit exports, we MUST keep named nodes to preserve the Element/Instance hierarchy
             args.Append(" -kn");
+            // Also keep extras (metadata)
+            args.Append(" -ke");
 
             if (_settings.UseMeshoptimizer)
                 args.Append(" -c");           // EXT_meshopt_compression

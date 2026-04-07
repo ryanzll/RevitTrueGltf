@@ -1,17 +1,20 @@
 using System.Collections.Generic;
 
+using RevitTrueGltf.Models;
+
 namespace RevitTrueGltf
 {
     public enum MaterialMode { Texture, ColorOnly }
     public enum VertexPrecision { Standard = 14, High = 16, VeryHigh = 18 }
-    public enum ExportPreset { Custom, Draft, Balanced, HighFidelity }
+    public enum ExportPreset { Custom, Draft, Balanced, HighFidelity, Raw }
 
     public class ExportSettings
     {
         // --- 1. Export Scope ---
         public bool ExportFloors { get; set; } = true;
         public bool VisibleElementsOnly { get; set; } = true;
-        public bool ExportBimProperties { get; set; } = true;
+        public bool ExportRevitParameters { get; set; } = true;
+        public RevitParameterMode RevitParameterMode { get; set; } = RevitParameterMode.FlatEmbedded;
         public bool IncludeLinkedModels { get; set; } = true;
 
         // --- 2. Appearance ---

@@ -9,7 +9,7 @@
         mc:Ignorable="d"
         d:DataContext="{d:DesignInstance local:ExportSettingsVM}"
         Title="RevitTrueGltf Export Settings" 
-        Height="720" Width="480" MinWidth="480"
+        Height="720" Width="480" MinWidth="500"
         WindowStartupLocation="CenterScreen"
         ExtendsContentIntoTitleBar="True"
         WindowBackdropType="Mica"
@@ -50,7 +50,18 @@
                     <StackPanel Margin="5,0,0,0">
                         <CheckBox Content="Export Floors (Slab Geometry)" IsChecked="{Binding ExportFloors}" Margin="0,0,0,8" />
                         <CheckBox Content="Export Visible Elements Only" IsChecked="{Binding VisibleElementsOnly}" Margin="0,0,0,8" />
-                        <CheckBox Content="Export BIM Properties (Metadata)" IsChecked="{Binding ExportBimProperties}" Margin="0,0,0,8" />
+                        <CheckBox Content="Export Revit Parameters (Metadata)" IsChecked="{Binding ExportRevitParameters}" Margin="0,0,0,8" x:Name="CbParameters" />
+                        <StackPanel Margin="26,0,0,8" IsEnabled="{Binding ElementName=CbParameters, Path=IsChecked}">
+                            <TextBlock Text="Revit Parameter Mode" FontSize="11" Foreground="{DynamicResource TextFillColorSecondaryBrush}" Margin="0,0,0,4"/>
+                            <ComboBox SelectedValue="{Binding RevitParameterMode}" SelectedValuePath="Tag" Width="200" HorizontalAlignment="Left">
+                                <ComboBoxItem Content="Flat Embedded" Tag="{x:Static local:Models.RevitParameterMode.FlatEmbedded}" 
+                                              ToolTip="Directly embed parameters into each glTF node's 'extras'. Simple but may increase file size." />
+                                <ComboBoxItem Content="Schema Referenced" Tag="{x:Static local:Models.RevitParameterMode.SchemaReferenced}" 
+                                              ToolTip="Store parameters in a global dictionary and reference them by ID. Highly efficient for repetitive data." />
+                                <ComboBoxItem Content="External SQLite" Tag="{x:Static local:Models.RevitParameterMode.ExternalSqlite}" 
+                                              ToolTip="Export parameters to a standalone .sqlite database file. Recommended for extremely large datasets." />
+                            </ComboBox>
+                        </StackPanel>
                         <CheckBox Content="Include Linked Revit Models" IsChecked="{Binding IncludeLinkedModels}" />
                     </StackPanel>
                 </ui:CardExpander>
@@ -60,24 +71,25 @@
                     <ui:CardExpander.Header>
                         <StackPanel Orientation="Horizontal">
                             <ui:SymbolIcon Symbol="DeveloperBoard24" Margin="0,0,8,0" VerticalAlignment="Center"/>
-                            <TextBlock Text="Export Presets" FontSize="15" FontWeight="SemiBold" VerticalAlignment="Center"/>
+                            <TextBlock Text="Fidelity &amp; Optimization" FontSize="15" FontWeight="SemiBold" VerticalAlignment="Center"/>
                         </StackPanel>
                     </ui:CardExpander.Header>
                     <StackPanel Margin="5,8,0,0">
-                        <Grid HorizontalAlignment="Left">
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="100" />
-                                <ColumnDefinition Width="120" />
-                                <ColumnDefinition Width="*" />
-                            </Grid.ColumnDefinitions>
-                            <RadioButton Grid.Column="0" Content="Draft" GroupName="Presets" IsChecked="{Binding SelectedPreset, Converter={StaticResource EnumToBoolConverter}, ConverterParameter=Draft}" HorizontalAlignment="Left"/>
-                            <RadioButton Grid.Column="1" Content="Balanced" GroupName="Presets" IsChecked="{Binding SelectedPreset, Converter={StaticResource EnumToBoolConverter}, ConverterParameter=Balanced}" HorizontalAlignment="Left"/>
-                            <RadioButton Grid.Column="2" Content="High Fidelity" GroupName="Presets" IsChecked="{Binding SelectedPreset, Converter={StaticResource EnumToBoolConverter}, ConverterParameter=HighFidelity}" HorizontalAlignment="Left" />
-                        </Grid>
-                        <TextBlock Text="* Presets automatically update Appearance and Optimization settings below." 
+                        <StackPanel Orientation="Horizontal">
+                            <RadioButton Content="Draft" GroupName="Presets" IsChecked="{Binding SelectedPreset, Converter={StaticResource EnumToBoolConverter}, ConverterParameter=Draft}" Margin="0,0,6,0"
+                                         ToolTip="Fast export with optimized geometry and reduced texture overhead."/>
+                            <RadioButton Content="Balanced" GroupName="Presets" IsChecked="{Binding SelectedPreset, Converter={StaticResource EnumToBoolConverter}, ConverterParameter=Balanced}" Margin="0,0,6,0"
+                                         ToolTip="Recommended. Balance between visual fidelity and file size."/>
+                            <RadioButton Content="High Fidelity" GroupName="Presets" IsChecked="{Binding SelectedPreset, Converter={StaticResource EnumToBoolConverter}, ConverterParameter=HighFidelity}" Margin="0,0,6,0" 
+                                         ToolTip="Highest precision and texture quality for architectural visualization."/>
+                            <RadioButton Content="Raw" GroupName="Presets" IsChecked="{Binding SelectedPreset, Converter={StaticResource EnumToBoolConverter}, ConverterParameter=Raw}" 
+                                         ToolTip="Lossless export: No compression or geometry modification applied."/>
+                        </StackPanel>
+                        <TextBlock Text="* These profiles automatically adjust Material and Geometry settings below." 
                                    Margin="0,12,0,0" 
                                    FontSize="11" 
-                                   Foreground="{DynamicResource TextFillColorSecondaryBrush}"/>
+                                   Foreground="{DynamicResource TextFillColorSecondaryBrush}" 
+                                   FontStyle="Italic"/>
                     </StackPanel>
                 </ui:CardExpander>
 
@@ -130,7 +142,7 @@
                     </StackPanel>
                 </ui:CardExpander>
 
-                <!-- 输出路径 / Output Path Section -->
+                <!-- Output Path Section -->
                 <TextBlock Text="Output Location" FontSize="13" FontWeight="Medium" Margin="5,12,0,8"/>
                 <Grid Margin="5,0,0,20">
                     <Grid.ColumnDefinitions>
@@ -147,8 +159,8 @@
         <!-- Footer Action Area -->
         <Border Grid.Row="2" Background="{DynamicResource ControlFillColorDefaultBrush}" BorderBrush="{DynamicResource ControlStrokeColorDefaultBrush}" BorderThickness="0,1,0,0" Padding="20">
             <Grid>
-                <ui:Button Content="Cancel" Width="100" HorizontalAlignment="Left" Click="OnCancelClick" />
-                <ui:Button x:Name="BtnExport" Appearance="Primary" Content="Export Now" Width="120" HorizontalAlignment="Right" Click="OnExportClick" />
+                <ui:Button IsCancel="True" Content="Cancel" Width="100" HorizontalAlignment="Left" Click="OnCancelClick" />
+                <ui:Button x:Name="BtnExport" IsDefault="True" Appearance="Primary" Content="Export Now" Width="120" HorizontalAlignment="Right" Click="OnExportClick" />
             </Grid>
         </Border>
     </Grid>

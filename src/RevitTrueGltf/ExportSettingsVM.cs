@@ -1,6 +1,7 @@
 using System;
 using System.ComponentModel;
 using System.Runtime.CompilerServices;
+using RevitTrueGltf.Models;
 
 namespace RevitTrueGltf
 {
@@ -45,11 +46,19 @@ namespace RevitTrueGltf
             set { if (_settings.VisibleElementsOnly != value) { _settings.VisibleElementsOnly = value; OnPropertyChanged(); } }
         }
 
-        public bool ExportBimProperties
+        public bool ExportRevitParameters
         {
-            get => _settings.ExportBimProperties;
-            set { if (_settings.ExportBimProperties != value) { _settings.ExportBimProperties = value; OnPropertyChanged(); } }
+            get => _settings.ExportRevitParameters;
+            set { if (_settings.ExportRevitParameters != value) { _settings.ExportRevitParameters = value; OnPropertyChanged(); } }
         }
+
+        public RevitParameterMode RevitParameterMode
+        {
+            get => _settings.RevitParameterMode;
+            set { if (_settings.RevitParameterMode != value) { _settings.RevitParameterMode = value; OnPropertyChanged(); } }
+        }
+
+        public RevitParameterMode[] RevitParameterModes => (RevitParameterMode[])Enum.GetValues(typeof(RevitParameterMode));
 
         public bool IncludeLinkedModels
         {
@@ -136,6 +145,14 @@ namespace RevitTrueGltf
                     UseMeshopt = false;
                     UseVertexPrecision = true;
                     VertexPositionPrecision = VertexPrecision.VeryHigh;
+                    SimplificationRatio = 0.0;
+                    break;
+                case ExportPreset.Raw:
+                    // Pure Export: No compression, No meshopt, No KTX2, No precision quantization
+                    MaterialExportMode = MaterialMode.Texture;
+                    UseKtx2 = false;
+                    UseMeshopt = false;
+                    UseVertexPrecision = false;
                     SimplificationRatio = 0.0;
                     break;
             }
