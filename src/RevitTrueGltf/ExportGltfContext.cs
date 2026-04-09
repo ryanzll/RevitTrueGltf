@@ -2,6 +2,7 @@ using Autodesk.Revit.DB;
 using RevitTrueGltf.ExportStrategies;
 using RevitTrueGltf.Models;
 using RevitTrueGltf.Utils;
+using Serilog;
 using SharpGLTF.Geometry;
 using SharpGLTF.Geometry.VertexTypes;
 using SharpGLTF.Materials;
@@ -82,6 +83,7 @@ namespace RevitTrueGltf
         #region IExportContext
         public void Finish()
         {
+            Log.Information("ExportGltfContext.Finish() triggered.");
             if (_parameterStrategy != null)
             {
                 _parameterStrategy.FinalizeExport();
@@ -89,7 +91,9 @@ namespace RevitTrueGltf
 
             var model = _sceneBuilder.ToGltf2();
 
+            Log.Information("Writing glTF file to: {ExportFilePath}", _settings.ExportFilePath);
             new GltfWriter(_settings).Write(model, _settings.ExportFilePath);
+            Log.Information("Export process completed successfully.");
         }
 
         public bool IsCanceled()
@@ -100,7 +104,23 @@ namespace RevitTrueGltf
         public RenderNodeAction OnElementBegin(ElementId elementId)
         {
             var element = _document.GetElement(elementId);
+            // Prepare the Element Frame (Delay node creation until mesh or child exists)
+            var elementName = element?.Name;
+            var elementFrame = new ExportFrame
+            {
+                Type = ExportFrameType.Element,
+                Parent = CurrentFrame,
+                NodeName = $"{elementName} [{elementId.GetIdValue()}]",
+                ElementId = elementId
+            };
+            _stack.Push(elementFrame);
+            Log.Debug("[Stack] Pushed Element: {Name} [{Id}]. Current Depth: {Count}",
+                elementFrame.NodeName, elementId.GetIdValue(), _stack.Count);
+
             if (element == null) return RenderNodeAction.Skip;
+
+            Log.Debug("OnElementBegin: {Name} [{Id}], Category: {Category}",
+                element.Name, elementId.GetIdValue(), element.Category?.Name);
 
             // Skip hidden elements if only visible elements are requested
             if (_settings != null && _settings.VisibleElementsOnly)
@@ -117,15 +137,6 @@ namespace RevitTrueGltf
                 }
             }
 
-            // Prepare the Element Frame (Delay node creation until mesh or child exists)
-            var elementFrame = new ExportFrame
-            {
-                Type = ExportFrameType.Element,
-                Parent = CurrentFrame,
-                NodeName = $"{element.Name} [{elementId.GetIdValue()}]",
-                ElementId = elementId
-            };
-
             // Set logical parent if this is a SubComponent
             var famInst = element as FamilyInstance;
             if (famInst != null && famInst.SuperComponent != null)
@@ -140,15 +151,19 @@ namespace RevitTrueGltf
                 elementFrame.Node = existingNode;
             }
 
-            _stack.Push(elementFrame);
-
             return RenderNodeAction.Proceed;
         }
 
         public void OnElementEnd(ElementId elementId)
         {
-            if (_stack.Count == 0) return;
+            if (_stack.Count == 0)
+            {
+                Log.Warning("[Stack] OnElementEnd for {Id} called with EMPTY stack!", elementId.GetIdValue());
+                return;
+            }
             var frame = _stack.Pop();
+            Log.Debug("[Stack] Popped {Type} (expected Element): {Name}. Current Depth: {Count}",
+                frame.Type, frame.NodeName, _stack.Count);
 
             if (frame.MeshBuilder != null && frame.MeshBuilder.Primitives.Count > 0)
             {
@@ -192,24 +207,27 @@ namespace RevitTrueGltf
             var symbolId = node.GetSymbolId();
 
             var parentFrame = CurrentFrame;
-            if (parentFrame == null) return RenderNodeAction.Skip;
-
-            var transformMatrix = ConvertTransform(node.GetTransform());
             string nodeName = string.IsNullOrEmpty(node.NodeName) ? "Instance" : node.NodeName;
             if (nodeName.StartsWith("RNT_")) nodeName = "Instance";
-
             // Prepare lazy frame
             var instanceFrame = new ExportFrame
             {
                 Type = ExportFrameType.Instance,
                 Parent = parentFrame,
                 ParentId = parentFrame.Type == ExportFrameType.Element ? parentFrame.ElementId : ElementId.InvalidElementId,
-                NodeName = nodeName,
-                LocalMatrix = transformMatrix,
                 ElementId = parentFrame.ElementId,
                 SymbolId = symbolId,
-                MaterialId = parentFrame.MaterialId
+                MaterialId = parentFrame.MaterialId,
+                NodeName = nodeName
             };
+            _stack.Push(instanceFrame);
+            Log.Debug("[Stack] Pushed Instance: {Name} (Symbol: {SymbolId}). Current Depth: {Count}",
+                instanceFrame.NodeName, symbolId.GetIdValue(), _stack.Count);
+
+            if (parentFrame == null) return RenderNodeAction.Skip;
+
+            var transformMatrix = ConvertTransform(node.GetTransform());
+            instanceFrame.LocalMatrix = transformMatrix;
 
             if (_meshBuilderCache.TryGetValue(symbolId, out var cachedMesh))
             {
@@ -223,15 +241,19 @@ namespace RevitTrueGltf
             }
 
             instanceFrame.EnsureMeshBuilder();
-            _stack.Push(instanceFrame);
-
             return RenderNodeAction.Proceed;
         }
 
         public void OnInstanceEnd(InstanceNode node)
         {
-            if (_stack.Count == 0) return;
+            if (_stack.Count == 0)
+            {
+                Log.Warning("[Stack] OnInstanceEnd called with EMPTY stack!");
+                return;
+            }
             var frame = _stack.Pop();
+            Log.Debug("[Stack] Popped {Type} (expected Instance): {Name}. Current Depth: {Count}",
+                frame.Type, frame.NodeName, _stack.Count);
 
             // Only process if this frame was pushed by OnInstanceBegin (Symbol capture)
             if (frame != null && frame.SymbolId != ElementId.InvalidElementId)
@@ -267,6 +289,8 @@ namespace RevitTrueGltf
             };
 
             _stack.Push(linkFrame);
+            Log.Debug("[Stack] Pushed Link: {Name}. Current Depth: {Count}",
+                linkFrame.NodeName, _stack.Count);
             return RenderNodeAction.Proceed;
         }
 
@@ -274,7 +298,13 @@ namespace RevitTrueGltf
         {
             if (_stack.Count > 0)
             {
-                _stack.Pop();
+                var frame = _stack.Pop();
+                Log.Debug("[Stack] Popped {Type} (expected Link): {Name}. Current Depth: {Count}",
+                    frame.Type, frame.NodeName, _stack.Count);
+            }
+            else
+            {
+                Log.Warning("[Stack] OnLinkEnd called with EMPTY stack!");
             }
         }
 
@@ -337,7 +367,7 @@ namespace RevitTrueGltf
                     var v1 = CreateVertex(points[facet.V2], GetFaceVerexNormal(node, facetIndex, facet.V2), hasUVs ? uvs[facet.V2] : new UV(0, 0));
                     var v2 = CreateVertex(points[facet.V3], GetFaceVerexNormal(node, facetIndex, facet.V3), hasUVs ? uvs[facet.V3] : new UV(0, 0));
 
-                    // Skip degenerate triangles — read positions directly from the vertex structs
+                    // Skip degenerate triangles - read positions directly from the vertex structs
                     if (Vector3.DistanceSquared(v0.Geometry.Position, v1.Geometry.Position) < 1e-12f ||
                         Vector3.DistanceSquared(v1.Geometry.Position, v2.Geometry.Position) < 1e-12f ||
                         Vector3.DistanceSquared(v2.Geometry.Position, v0.Geometry.Position) < 1e-12f)
@@ -383,6 +413,7 @@ namespace RevitTrueGltf
 
         public bool Start()
         {
+            Log.Information("ExportGltfContext.Start() initialized for project.");
             // 1. Initialize the project root node
             string projectName = _document.ProjectInformation.Name;
             _rootNode = new NodeBuilder(string.IsNullOrEmpty(projectName) ? "Revit Model" : projectName);

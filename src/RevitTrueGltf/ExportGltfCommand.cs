@@ -16,6 +16,8 @@ namespace RevitTrueGltf
             
             try
             {
+                LoggingHelper.Initialize();
+                
                 Document doc = commandData.Application.ActiveUIDocument.Document;
                 View3D activeView = doc.ActiveView as View3D;
                 if (activeView == null)
