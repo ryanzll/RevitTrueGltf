@@ -1,5 +1,6 @@
 using Autodesk.Revit.DB;
 using RevitTrueGltf.ExportStrategies;
+using RevitTrueGltf.Hierarchy;
 using RevitTrueGltf.Models;
 using RevitTrueGltf.Utils;
 using Serilog;
@@ -9,6 +10,7 @@ using SharpGLTF.Materials;
 using SharpGLTF.Scenes;
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Numerics;
 
 namespace RevitTrueGltf
@@ -68,6 +70,8 @@ namespace RevitTrueGltf
 
         private NodeBuilder _rootNode;
         private readonly Dictionary<ElementId, NodeBuilder> _elementNodeMap = new Dictionary<ElementId, NodeBuilder>();
+        private readonly Dictionary<ElementId, ElementId> _subElementToParentMap = new Dictionary<ElementId, ElementId>();
+        private readonly HierarchyManager _hierarchyManager = new HierarchyManager();
 
         private Document _document = null;
         private ExportSettings _settings = null;
@@ -137,11 +141,30 @@ namespace RevitTrueGltf
                 }
             }
 
-            // Set logical parent if this is a SubComponent
-            var famInst = element as FamilyInstance;
-            if (famInst != null && famInst.SuperComponent != null)
+            // 1. Resolve hierarchy results
+            var hierarchy = _hierarchyManager.Resolve(element);
+
+            // Populate map for future children resolution
+            foreach (var childId in hierarchy.Children)
             {
-                elementFrame.ParentId = famInst.SuperComponent.Id;
+                if (!_subElementToParentMap.ContainsKey(childId))
+                {
+                    _subElementToParentMap.Add(childId, elementId);
+                }
+            }
+
+            // Determine parentId (Strategy result first, then fallback to map lookup)
+            var parentId = hierarchy.ParentId;
+            if (parentId == ElementId.InvalidElementId)
+            {
+                _subElementToParentMap.TryGetValue(elementId, out parentId);
+            }
+            elementFrame.ParentId = parentId;
+
+            // 2. If this is a container (has children), force node creation now for parameters
+            if (hierarchy.Children.Any())
+            {
+                GetOrCreateGltfNode(elementFrame);
             }
 
             // Important: If we are re-entering an element already created via recursion, 
@@ -661,12 +684,8 @@ namespace RevitTrueGltf
             var element = _document.GetElement(id);
             if (element == null) return _rootNode;
 
-            // Resolve logical parent (SuperComponent)
-            ElementId parentId = ElementId.InvalidElementId;
-            if (element is FamilyInstance famInst && famInst.SuperComponent != null)
-            {
-                parentId = famInst.SuperComponent.Id;
-            }
+            // Resolve logical parent from map (populated during OnElementBegin)
+            _subElementToParentMap.TryGetValue(id, out var parentId);
 
             // Recursive climb to the root of the SuperComponent chain
             var parentNode = GetOrCreateElementNode(parentId);
