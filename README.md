@@ -47,6 +47,14 @@ In terms of material conversion, the exporter deeply analyzes Revit's internal m
     - **Schema Referenced**: Stores a global parameter schema at the root and uses indexed references for each element. This significantly reduces redundancy and file size for large-scale models.
     - **External SQLite**: Exports parameter data into a standalone `.sqlite` database companion file. This is the professional choice for **Operation & Maintenance (O&M)** systems, allowing for flexible post-processing, data transformation, and real-time backend updates without modifying the 3D model itself.
 
+- **Logical Element Hierarchy**: Reconstructs the full Revit logical structure (Curtain Walls, Groups, Nested Families) within the glTF scene graph. 
+    - **BIM & O&M Ready**: Parameters attach to logical parents, ensuring data integrity for asset management and Digital Twins.
+
+
+    | Before (Flat Mesh) | After (Logic Tree) |
+    | :---: | :---: |
+    | ![Flat Hierarchy](images/hierarchy-1.png) | ![Structured Hierarchy](images/hierarchy-2.png) |
+
 ### Detailed Material & Data Support Matrix
 
 | Material Property / Feature | Supported | Planned (Roadmap) |
