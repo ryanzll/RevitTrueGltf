@@ -77,6 +77,7 @@ namespace RevitTrueGltf
         private ExportSettings _settings = null;
 
         private IParameterExportStrategy _parameterStrategy;
+        private IMaterialStrategy _materialStrategy;
 
         public ExportGltfContext(Document doc, ExportSettings settings)
         {
@@ -341,18 +342,10 @@ namespace RevitTrueGltf
                 frame.MaterialId = node.MaterialId;
                 if (!_materialBuilderCache.ContainsKey(frame.MaterialId))
                 {
-                    MaterialUtils materialUtils = new MaterialUtils();
-                    var materialBuilder = new MaterialBuilder(node.NodeName);
-                    if (!materialUtils.Convert(node, materialBuilder))
+                    var materialBuilder = _materialStrategy.Build(node);
+                    if (null == materialBuilder)
                     {
-                        var color = node.Color;
-                        var transparency = node.Transparency;
-                        materialBuilder = new MaterialBuilder(node.NodeName).
-                            WithBaseColor(new Vector4(color.Red / 255f, color.Green / 255f, color.Blue / 255f, (float)(1.0f - transparency)));
-                        if (transparency > 0)
-                        {
-                            materialBuilder.WithAlpha(SharpGLTF.Materials.AlphaMode.BLEND);
-                        }
+                        return;
                     }
                     _materialBuilderCache.Add(frame.MaterialId, materialBuilder);
                 }
@@ -442,7 +435,12 @@ namespace RevitTrueGltf
             _rootNode = new NodeBuilder(string.IsNullOrEmpty(projectName) ? "Revit Model" : projectName);
             _sceneBuilder.AddNode(_rootNode);
 
-            // 2. Initialize Parameter Strategy
+            // 2. Initialize Material Strategy
+            _materialStrategy = _settings.MaterialExportMode == MaterialMode.ColorOnly
+                ? (IMaterialStrategy)new ColorOnlyMaterialStrategy()
+                : new PbrMaterialStrategy();
+
+            // 3. Initialize Parameter Strategy
             if (_settings.ExportRevitParameters)
             {
                 switch (_settings.RevitParameterMode)

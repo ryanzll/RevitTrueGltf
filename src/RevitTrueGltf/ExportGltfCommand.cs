@@ -26,7 +26,7 @@ namespace RevitTrueGltf
                     return Result.Failed;
                 }
 
-                MaterialUtils.Init(commandData.Application.Application);
+                RevitContext.Initialize(commandData.Application.Application);
 
                 // Prepare default path
                 string defaultFileName = Path.ChangeExtension(doc.Title, ".glb");
