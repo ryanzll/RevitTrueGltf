@@ -23,6 +23,13 @@ namespace RevitTrueGltf.ExportStrategies
             extras["Category"] = elementData.CategoryName;
             extras["CategoryKey"] = elementData.CategoryKey;
 
+            // Level elements are the reference datum themselves — LevelName/LevelId would be circular.
+            if (elementData.CategoryKey != "OST_Levels")
+            {
+                extras["LevelName"] = elementData.LevelName;
+                extras["LevelUniqueId"] = elementData.LevelUniqueId;
+            }
+
             var parameters = new JsonArray();
             foreach (var param in elementData.Parameters)
             {

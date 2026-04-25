@@ -69,6 +69,8 @@ namespace RevitTrueGltf
         private readonly Dictionary<ElementId, MaterialBuilder> _materialBuilderCache = new Dictionary<ElementId, MaterialBuilder>();
 
         private NodeBuilder _rootNode;
+        // Folder node for all physical elements; persisted as a field because GetOrCreateElementNode() references it throughout export.
+        private NodeBuilder _elementsNode;
         private readonly Dictionary<ElementId, NodeBuilder> _elementNodeMap = new Dictionary<ElementId, NodeBuilder>();
         private readonly Dictionary<ElementId, ElementId> _subElementToParentMap = new Dictionary<ElementId, ElementId>();
         private readonly HierarchyManager _hierarchyManager = new HierarchyManager();
@@ -93,6 +95,9 @@ namespace RevitTrueGltf
             {
                 _parameterStrategy.FinalizeExport();
             }
+
+            // Release the level cache that was built during Start()
+            RevitParameterExtractor.Clear();
 
             var model = _sceneBuilder.ToGltf2();
 
@@ -196,6 +201,7 @@ namespace RevitTrueGltf
 
                 // Assign mesh to an explicitly named child node for structural clarity
                 var geomNode = node.CreateNode("Geometry");
+                
                 var instance = _sceneBuilder.AddRigidMesh(frame.MeshBuilder, geomNode);
             }
 
@@ -462,6 +468,24 @@ namespace RevitTrueGltf
                 _parameterStrategy.Initialize(_settings.ExportFilePath, _rootNode);
             }
 
+            // 4. Create folder nodes and export level data
+            // levelsNode is local: only used here to attach Level child nodes during Start().
+            // _elementsNode is a field: used throughout the export in GetOrCreateElementNode().
+            var levelsNode = _rootNode.CreateNode("Levels");
+            _elementsNode = _rootNode.CreateNode("Elements");
+
+            // Initialize level cache and get level DTOs (LevelManager internally caches sorted levels).
+            // ExportGltfContext is responsible for glTF node creation; RevitParameterExtractor stays glTF-free.
+            var levelEntries = RevitParameterExtractor.Initialize(_document);
+            foreach (var (level, levelDto) in levelEntries)
+            {
+                var levelNode = levelsNode.CreateNode($"{level.Name} [{level.Id.GetIdValue()}]");
+                if (_parameterStrategy != null)
+                {
+                    _parameterStrategy.OnElement(levelDto, levelNode);
+                }
+            }
+
             return true;
         }
         #endregion
@@ -676,11 +700,11 @@ namespace RevitTrueGltf
         /// </summary>
         private NodeBuilder GetOrCreateElementNode(ElementId id)
         {
-            if (id == null || id == ElementId.InvalidElementId) return _rootNode;
+            if (id == null || id == ElementId.InvalidElementId) return _elementsNode;
             if (_elementNodeMap.TryGetValue(id, out var node)) return node;
 
             var element = _document.GetElement(id);
-            if (element == null) return _rootNode;
+            if (element == null) return _elementsNode;
 
             // Resolve logical parent from map (populated during OnElementBegin)
             _subElementToParentMap.TryGetValue(id, out var parentId);

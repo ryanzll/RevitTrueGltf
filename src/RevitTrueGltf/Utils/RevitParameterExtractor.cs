@@ -10,6 +10,24 @@ namespace RevitTrueGltf.Utils
     /// </summary>
     public static class RevitParameterExtractor
     {
+        /// <summary>
+        /// Initializes the internal level cache via LevelManager and returns a list of
+        /// (Level, ElementDataDTO) pairs for the caller to create glTF Level nodes.
+        /// Must be called once before ExtractParameters is used.
+        /// </summary>
+        public static List<(Level Level, ElementDataDTO Dto)> Initialize(Document document)
+        {
+            return LevelManager.Initialize(document);
+        }
+
+        /// <summary>
+        /// Clears the internal level cache. Call in ExportGltfContext.Finish().
+        /// </summary>
+        public static void Clear()
+        {
+            LevelManager.Clear();
+        }
+
         public static ElementDataDTO ExtractParameters(Document document, Element element)
         {
             if (element == null) return null;
@@ -22,6 +40,9 @@ namespace RevitTrueGltf.Utils
                 CategoryName = element.Category?.Name ?? "None",
                 CategoryKey = RevitApiWrapper.GetCategoryKey(element.Category)
             };
+
+            // Attach level info via LevelManager (three-step inference: LevelId -> BuiltIn params -> BoundingBox)
+            LevelManager.AttachLevelInfo(document, element, dto);
 
             // 1. Instance Parameters
             foreach (Parameter param in element.Parameters)
@@ -49,6 +70,7 @@ namespace RevitTrueGltf.Utils
 
             return dto;
         }
+
 
         private static ParameterDTO MapParameter(Parameter param)
         {
