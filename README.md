@@ -4,11 +4,11 @@
   RevitTrueGltf
 </h1>
 
-RevitTrueGltf is a high-fidelity Revit to glTF 2.0 exporter plugin. It is dedicated to reproducing the original models and materials from Revit as accurately as possible in 3D graphics applications through a Physically Based Rendering (PBR) workflow to achieve high-quality rendering results.
+RevitTrueGltf is an advanced Revit to glTF 2.0 exporter plugin built for both high-fidelity rendering and full BIM data integration. It faithfully preserves PBR materials and complete element parameters, bridging the gap between Revit authoring and modern 3D engines (e.g., Babylon.js, Three.js) for Digital Twins and O&M workflows.
 
 ## 1. Project Introduction
 
-The primary goal of this project is to solve the common issues of material information loss and visual distortion when exporting from Revit to glTF. Whether it's standard architectural materials or complex transmissive glass, RevitTrueGltf deeply extracts the data and accurately expresses it in the resulting glTF file.
+Exporting from Revit to standard 3D formats has long suffered from material distortion, lost transparency, and stripped metadata. RevitTrueGltf addresses all three: it deeply extracts physical material properties (including complex transmissive glass via `KHR_materials_transmission`) and provides flexible BIM data export strategies—Flat Embedded JSON, Shared Schemas, or standalone SQLite databases—so your models arrive in the target engine both visually faithful and structurally data-rich.
 
 ### Visual Comparison (Revit vs glTF)
 
@@ -72,6 +72,7 @@ In terms of material conversion, the exporter deeply analyzes Revit's internal m
 | **Draco Geometry Compression** | - | - |
 | **Meshoptimizer Support** | ✔️ | - |
 | **Extract Revit parameters** | ✔️ | - |
+| **Level Export & Element-Level Association** | ✔️ | - |
 
 ## 4. How to Install & Test
 
